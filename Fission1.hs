@@ -33,4 +33,5 @@ concat _ (One _)      (Concat _ _) = undefined
 concat _ (Concat _ _) (One _)      = undefined
 concat _ (One _)      (One _)      = undefined
 
+askTuner :: [Int] -> TuneM Int
 askTuner = undefined
