@@ -3,12 +3,15 @@
 module Fission2 where
 
 import           Control.Monad
-import           Data.Array.Accelerate (Array, Elt, Shape)
+import           Data.Array.Accelerate (Array, Elt, Shape, (:.)(..))
 import qualified Data.Array.Accelerate as A
 import           Prelude               as P hiding (concat)
 
 
 type TuneM a = IO a
+
+arr :: A.Acc (A.Vector Double)
+arr = A.use (A.fromList (A.Z :. 10) [0..])
 
 map :: (A.Slice sh,Shape sh,Elt a,Elt b)
     => (A.Exp a -> A.Exp b) -> A.Acc (Array (sh A.:. Int) a) -> TuneM (A.Acc (Array (sh A.:. Int) b))
