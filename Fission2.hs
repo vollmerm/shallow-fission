@@ -3,7 +3,7 @@
 module Fission2 where
 
 import           Control.Monad
-import           Data.Array.Accelerate (Array, Elt, Shape, (:.)(..))
+import           Data.Array.Accelerate ((:.) (..), Array, Elt, Shape)
 import qualified Data.Array.Accelerate as A
 import           Prelude               as P hiding (concat)
 
@@ -34,7 +34,7 @@ split arr = return (splitArray (A.constant 0), splitArray (A.constant 1))
                                       (start + chunk,
                                        (i+1) * chunk + leftover)
                   bsh               = A.lift $ (A.indexTail $ A.shape arr) A.:. (end - start)
-                  f x               = A.lift $ (A.indexTail x) A.:. start
+                  f x               = A.lift $ (A.indexTail x) A.:. ((A.IndexHead x) + start)
               in A.backpermute bsh f arr
 
 concat :: (A.Slice sh,Shape sh,Elt a)
