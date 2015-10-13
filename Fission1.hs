@@ -18,7 +18,7 @@ type TuneM a = IO a
 newtype Acc a = MkAcc (Rep a)
   deriving Show
 
-data Rep a = Concat DimId [A.Acc a]
+data Rep a = Concat DimId [A.Acc a] -- could add new variant field Zipwith for fissioning fold
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
@@ -34,35 +34,66 @@ arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 
 a1 = Fission1.map (+ 1) arr
 
-run (MkAcc (Concat 0 as)) = I.run $ foldl1 (A.++) as
+run1 :: (Slice ix, Shape ix, Elt a) =>
+        Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
+run1 (MkAcc (Concat _ [])) = error "No arrays to concat"
+run1 (MkAcc (Concat 0 as)) = I.run $ foldl1 (A.++) as
 
-map1 :: (Slice ix, Shape ix, Elt a, Elt b)
-     => (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> TuneM (Acc (Array (ix :. Int) b))
+run0 :: (Shape ix, Elt a) =>
+        Acc (Array ix a) -> Array ix a
+run0 (MkAcc (Concat _ [])) = error "Nothing to do"
+run0 (MkAcc (Concat _ [a])) = I.run a
+run0 (MkAcc (Concat _ _as)) = error "Not implemented"
+
+run :: forall ix a. (Slice ix, Shape ix, Elt a) =>
+       Acc (Array ix a) -> Array ix a
+run (MkAcc (Concat _ [])) = error "No arrays to concat"
+run (MkAcc (Concat 0 as))
+    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = run0 (MkAcc (Concat 0 as))
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
+    | otherwise = run0 (MkAcc (Concat 0 as))
+
+map1 :: (Slice ix, Shape ix, Elt a, Elt b) =>
+        (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> TuneM (Acc (Array (ix :. Int) b))
+map1 _ (MkAcc (Concat _ [])) = error "Nothing to do."
 map1 f (MkAcc (Concat _ [arr])) =
-  do dim     <- askTuner [0..10]
-     (a1,a2) <- split dim arr
-     let m1 = A.map f a1
-         m2 = A.map f a2
-     return $ MkAcc $ Concat dim [m1,m2]
+    do dim     <- askTuner [0..10]
+       (a1,a2) <- split dim arr
+       let m1 = A.map f a1
+           m2 = A.map f a2
+       return $ MkAcc $ Concat dim [m1,m2]
 map1 f (MkAcc (Concat d as)) =
-  let as' = P.map (\a -> A.map f a) as
-  in return $ MkAcc (Concat d as')
+    let as' = P.map (\a -> A.map f a) as
+    in return $ MkAcc (Concat d as')
 
-map0 = undefined
+map0 :: (Shape ix, Elt a, Elt b) =>
+        (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
+map0 f (MkAcc (Concat d as)) =
+    let as' = P.map (\a -> A.map f a) as
+    in return $ MkAcc (Concat d as')
 
 map
   :: forall ix a b. (Shape ix, Elt a, Elt b) =>
      (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
 map f arr
-    | Just REFL <- matchShape (undefined :: A.Z) (undefined :: ix) = return $ map0 f arr
+    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = map0 f arr
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1 f arr
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1 f arr
-    | otherwise = return $ map0 f arr
+    | otherwise = map0 f arr
 
--- does split need to change the shape type?
-
--- split :: DimId -> A.Acc a -> TuneM (A.Acc a, A.Acc a)
---split = undefined
+fold1 :: (Slice ix, Shape ix, Elt a) =>
+         (A.Exp a -> A.Exp a -> A.Exp a) ->
+         Acc (Array (ix :. Int) a) -> TuneM (Acc (Array ix a))
+fold1 f (MkAcc (Concat _ [])) = error "Nothing to do"
+fold1 f (MkAcc (Concat d [arr])) =
+    do dim     <- askTuner [0..10]
+       (a1,a2) <- split dim arr
+       let m1 = A.fold1 f a1
+           m2 = A.fold1 f a2
+           -- This is what we did before
+           m3 = A.zipWith f m1 m2
+       return $ MkAcc $ Concat d [m3]
 
 split :: (A.Slice sh,Shape sh,Elt a)
       => DimId
