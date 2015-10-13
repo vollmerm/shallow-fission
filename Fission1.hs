@@ -18,12 +18,13 @@ type TuneM a = IO a
 newtype Acc a = MkAcc (Rep a)
   deriving Show
 
-data Rep a = Concat DimId [A.Acc a] -- could add new variant field Zipwith for fissioning fold
+data Rep a = Concat DimId [A.Acc a]
+---        | Zipwith (A.Exp b -> A.Exp b -> A.Exp b) (A.Acc a, A.Acc a) ???
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
-   "Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
-   unlines [ show x | x <- ls ]
+      "Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
+                         unlines [ show x | x <- ls ]
 
 type DimId = Int
 
@@ -33,6 +34,8 @@ arr :: Acc (A.Vector Double)
 arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 
 a1 = Fission1.map (+ 1) arr
+a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
+a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
@@ -91,9 +94,13 @@ fold1 f (MkAcc (Concat d [arr])) =
        (a1,a2) <- split dim arr
        let m1 = A.fold1 f a1
            m2 = A.fold1 f a2
-           -- This is what we did before
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
+fold1 f (MkAcc (Concat d [m1,m2])) =
+    let m1' = A.fold1 f m1
+        m2' = A.fold1 f m2
+        m3  = A.zipWith f m1' m2'
+    in return $ MkAcc $ Concat d [m3]
 
 split :: (A.Slice sh,Shape sh,Elt a)
       => DimId
