@@ -137,6 +137,16 @@ fold1 f (MkAcc (Concat d ms)) =
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
 
+zipWith f (MkAcc (Concat _ [])) _ = error "Nothing to do"
+zipWith f _ (MkAcc (Concat _ [])) = error "Nothing to do"
+zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m2])) =
+    do dim <- askTuner [0..10]
+       (m11,m12) <- split dim m1
+       (m21,m22) <- split dim m2
+       let m1' = A.zipWith f m11 m21
+           m2' = A.zipWith f m21 m22
+       return $ MkAcc $ Concat d1 [m1',m2']
+
 split :: (A.Slice sh,Shape sh,Elt a)
       => DimId
       -> A.Acc (Array (sh A.:. Int) a)
