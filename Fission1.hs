@@ -28,6 +28,7 @@ instance A.Arrays a => Show (Rep a) where
 
 type DimId = Int
 
+
 mkacc a = MkAcc $ Concat 0 [a]
 
 arr :: Acc (A.Vector Double)
@@ -40,7 +41,7 @@ a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
 run1 (MkAcc (Concat _ [])) = error "No arrays to concat"
-run1 (MkAcc (Concat 0 as)) = I.run $ foldl1 (A.++) as
+run1 (MkAcc (Concat 0 as)) = I.run $ foldr1 (A.++) as
 
 run0 :: (Shape ix, Elt a) =>
         Acc (Array ix a) -> Array ix a
@@ -85,6 +86,32 @@ map f arr
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1 f arr
     | otherwise = map0 f arr
 
+
+fold :: (Slice ix, Shape ix, Elt a) =>
+        (A.Exp a -> A.Exp a -> A.Exp a) ->
+        A.Exp a -> Acc (Array (ix :. Int) a) -> TuneM (Acc (Array ix a))
+fold f i (MkAcc (Concat _ [])) = error "Nothing to do"
+fold f i (MkAcc (Concat d [arr])) =
+    do dim     <- askTuner [0..10]
+       (a1,a2) <- split dim arr
+       let m1 = A.fold f i a1
+           m2 = A.fold f i a2
+           m3 = A.zipWith f m1 m2
+       return $ MkAcc $ Concat d [m3]
+fold f i (MkAcc (Concat d [m1,m2])) =
+    let m1' = A.fold f i m1
+        m2' = A.fold f i m2
+        m3  = A.zipWith f m1' m2'
+    in return $ MkAcc $ Concat d [m3]
+fold f i (MkAcc (Concat d ms)) =
+    do let arr = foldr1 (A.++) ms
+       dim     <- askTuner [0..10]
+       (a1,a2) <- split dim arr
+       let m1 = A.fold f i a1
+           m2 = A.fold f i a2
+           m3 = A.zipWith f m1 m2
+       return $ MkAcc $ Concat d [m3]
+
 fold1 :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->
          Acc (Array (ix :. Int) a) -> TuneM (Acc (Array ix a))
@@ -101,6 +128,14 @@ fold1 f (MkAcc (Concat d [m1,m2])) =
         m2' = A.fold1 f m2
         m3  = A.zipWith f m1' m2'
     in return $ MkAcc $ Concat d [m3]
+fold1 f (MkAcc (Concat d ms)) =
+    do let arr = foldr1 (A.++) ms
+       dim     <- askTuner [0..10]
+       (a1,a2) <- split dim arr
+       let m1 = A.fold1 f a1
+           m2 = A.fold1 f a2
+           m3 = A.zipWith f m1 m2
+       return $ MkAcc $ Concat d [m3]
 
 split :: (A.Slice sh,Shape sh,Elt a)
       => DimId

@@ -4,7 +4,7 @@
 arr = use (fromList (A.Z :. 10) [0..])
 a1 = map (+ 1) arr
 a2 = map (* 2) a1
-a3 = fold1 (+) a2'
+a3 = fold1 (+) a2
 ```
 
 ## Generated Accelerate code
