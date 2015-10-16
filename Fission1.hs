@@ -37,6 +37,7 @@ arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 a1 = Fission1.map (+ 1) arr
 a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
 a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
+a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
@@ -146,6 +147,11 @@ zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m2])) =
        let m1' = A.zipWith f m11 m21
            m2' = A.zipWith f m21 m22
        return $ MkAcc $ Concat d1 [m1',m2']
+zipWith f (MkAcc (Concat d1 [m11,m12])) (MkAcc (Concat d2 [m21,m22])) =
+    do let m1' = A.zipWith f m11 m21
+           m2' = A.zipWith f m21 m22
+       return $ MkAcc $ Concat d1 [m1',m2']
+zipWith _ _ _ = error "Not implemented"
 
 split :: (A.Slice sh,Shape sh,Elt a)
       => DimId
