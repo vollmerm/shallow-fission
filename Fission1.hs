@@ -13,13 +13,14 @@ import           Data.Array.Accelerate.Array.Sugar
 import qualified Data.Array.Accelerate.Interpreter    as I
 import           Data.Typeable
 import           Prelude                              as P hiding (concat)
+
 type TuneM a = IO a
 
 newtype Acc a = MkAcc (Rep a)
   deriving Show
 
 data Rep a = Concat DimId [A.Acc a]
----        | Zipwith (A.Exp b -> A.Exp b -> A.Exp b) (A.Acc a, A.Acc a) ???
+
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
@@ -60,15 +61,16 @@ run (MkAcc (Concat 0 as))
     | otherwise = run0 (MkAcc (Concat 0 as))
 
 map1 :: (Slice ix, Shape ix, Elt a, Elt b) =>
-        (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> TuneM (Acc (Array (ix :. Int) b))
-map1 _ (MkAcc (Concat _ [])) = error "Nothing to do."
-map1 f (MkAcc (Concat _ [arr])) =
-    do dim     <- askTuner [0..10]
+        (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
+        TuneM (Acc (Array (ix :. Int) b))
+map1 _ (MkAcc (Concat _ [])) _n = error "Nothing to do."
+map1 f (MkAcc (Concat _ [arr])) n =
+    do dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.map f a1
            m2 = A.map f a2
        return $ MkAcc $ Concat dim [m1,m2]
-map1 f (MkAcc (Concat d as)) =
+map1 f (MkAcc (Concat d as)) _n =
     let as' = P.map (\a -> A.map f a) as
     in return $ MkAcc (Concat d as')
 
@@ -83,60 +85,82 @@ map
      (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
 map f arr
     | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = map0 f arr
-    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1 f arr
-    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1 f arr
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1 f arr 1
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1 f arr 2
     | otherwise = map0 f arr
 
 
-fold :: (Slice ix, Shape ix, Elt a) =>
-        (A.Exp a -> A.Exp a -> A.Exp a) ->
-        A.Exp a -> Acc (Array (ix :. Int) a) -> TuneM (Acc (Array ix a))
-fold f i (MkAcc (Concat _ [])) = error "Nothing to do"
-fold f i (MkAcc (Concat d [arr])) =
-    do dim     <- askTuner [0..10]
+foldn :: (Slice ix, Shape ix, Elt a) =>
+         (A.Exp a -> A.Exp a -> A.Exp a) ->
+         A.Exp a -> Acc (Array (ix :. Int) a) -> Int ->
+         TuneM (Acc (Array ix a))
+foldn f i (MkAcc (Concat _ [])) _n = error "Nothing to do"
+foldn f i (MkAcc (Concat d [arr])) n =
+    do dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.fold f i a1
            m2 = A.fold f i a2
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
-fold f i (MkAcc (Concat d [m1,m2])) =
+foldn f i (MkAcc (Concat d [m1,m2])) _n =
     let m1' = A.fold f i m1
         m2' = A.fold f i m2
         m3  = A.zipWith f m1' m2'
     in return $ MkAcc $ Concat d [m3]
-fold f i (MkAcc (Concat d ms)) =
+foldn f i (MkAcc (Concat d ms)) n =
     do let arr = foldr1 (A.++) ms
-       dim     <- askTuner [0..10]
+       dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.fold f i a1
            m2 = A.fold f i a2
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
 
-fold1 :: (Slice ix, Shape ix, Elt a) =>
-         (A.Exp a -> A.Exp a -> A.Exp a) ->
-         Acc (Array (ix :. Int) a) -> TuneM (Acc (Array ix a))
-fold1 f (MkAcc (Concat _ [])) = error "Nothing to do"
-fold1 f (MkAcc (Concat d [arr])) =
-    do dim     <- askTuner [0..10]
+fold1n :: (Slice ix, Shape ix, Elt a) =>
+          (A.Exp a -> A.Exp a -> A.Exp a) ->
+          Acc (Array (ix :. Int) a) -> Int ->
+          TuneM (Acc (Array ix a))
+fold1n f (MkAcc (Concat _ [])) _n = error "Nothing to do"
+fold1n f (MkAcc (Concat d [arr])) n =
+    do dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.fold1 f a1
            m2 = A.fold1 f a2
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
-fold1 f (MkAcc (Concat d [m1,m2])) =
+fold1n f (MkAcc (Concat d [m1,m2])) _n =
     let m1' = A.fold1 f m1
         m2' = A.fold1 f m2
         m3  = A.zipWith f m1' m2'
     in return $ MkAcc $ Concat d [m3]
-fold1 f (MkAcc (Concat d ms)) =
+fold1n f (MkAcc (Concat d ms)) n =
     do let arr = foldr1 (A.++) ms
-       dim     <- askTuner [0..10]
+       dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.fold1 f a1
            m2 = A.fold1 f a2
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
+
+fold :: forall ix a. (Slice ix, Shape ix, Elt a) =>
+        (A.Exp a -> A.Exp a -> A.Exp a) ->
+        A.Exp a -> Acc (Array (ix :. Int) a) ->
+        TuneM (Acc (Array ix a))
+fold f a arr
+    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = foldn f a arr 1
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = foldn f a arr 2
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = foldn f a arr 3
+    | otherwise = foldn f a arr 0
+
+fold1 :: forall ix a. (Slice ix, Shape ix, Elt a) =>
+         (A.Exp a -> A.Exp a -> A.Exp a) ->
+         Acc (Array (ix :. Int) a) ->
+         TuneM (Acc (Array ix a))
+fold1 f arr
+    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = fold1n f arr 1
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = fold1n f arr 2
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = fold1n f arr 3
+    | otherwise = fold1n f arr 0
 
 zipWith f (MkAcc (Concat _ [])) _ = error "Nothing to do"
 zipWith f _ (MkAcc (Concat _ [])) = error "Nothing to do"
