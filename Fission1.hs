@@ -65,17 +65,17 @@ run (MkAcc (Concat 0 as))
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
     | otherwise = run0 (MkAcc (Concat 0 as))
 
-map1 :: (Slice ix, Shape ix, Elt a, Elt b) =>
-        (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
-        TuneM (Acc (Array (ix :. Int) b))
-map1 _ (MkAcc (Concat _ [])) _n = error "Nothing to do."
-map1 f (MkAcc (Concat _ [arr])) n =
+map1n :: (Slice ix, Shape ix, Elt a, Elt b) =>
+         (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
+         TuneM (Acc (Array (ix :. Int) b))
+map1n _ (MkAcc (Concat _ [])) _n = error "Nothing to do."
+map1n f (MkAcc (Concat _ [arr])) n =
     do dim     <- askTuner [0..n-1]
        (a1,a2) <- split dim arr
        let m1 = A.map f a1
            m2 = A.map f a2
        return $ MkAcc $ Concat dim [m1,m2]
-map1 f (MkAcc (Concat d as)) _n =
+map1n f (MkAcc (Concat d as)) _n =
     let as' = P.map (\a -> A.map f a) as
     in return $ MkAcc (Concat d as')
 
@@ -90,8 +90,8 @@ map
      (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
 map f arr
     | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = map0 f arr
-    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1 f arr 1
-    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1 f arr 2
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1n f arr 1
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1n f arr 2
     | otherwise = map0 f arr
 
 
