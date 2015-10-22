@@ -40,6 +40,11 @@ a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
 a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
+combine
+  :: (Slice sh, Shape sh, Elt e) =>
+     Acc (Array (sh :. Int) e) -> A.Acc (Array (sh :. Int) e)
+combine (MkAcc (Concat 0 as)) = foldr1 (A.++) $ P.map A.compute as
+
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
 run1 (MkAcc (Concat _ [])) = error "No arrays to concat"
