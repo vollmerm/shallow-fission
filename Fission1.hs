@@ -32,18 +32,13 @@ type DimId = Int
 
 mkacc a = MkAcc $ Concat 0 [a]
 
-arr :: Acc (A.Vector Double)
-arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
-
-a1 = Fission1.map (+ 1) arr
-a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
-a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
-a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
-
 combine
   :: (Slice sh, Shape sh, Elt e) =>
      Acc (Array (sh :. Int) e) -> A.Acc (Array (sh :. Int) e)
+combine (MkAcc (Concat 0 [a])) = a
 combine (MkAcc (Concat 0 as)) = foldr1 (A.++) $ P.map A.compute as
+
+combine0 (MkAcc (Concat 0 [a])) = a
 
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
@@ -187,20 +182,31 @@ split :: (A.Slice sh,Shape sh,Elt a)
       -> A.Acc (Array (sh A.:. Int) a)
       -> TuneM ( A.Acc (Array (sh A.:. Int) a),
                  A.Acc (Array (sh A.:. Int) a))
-split _dimid arr =
-      return (splitArray (A.constant 0), splitArray (A.constant 1))
-    where splitArray i =
-              let shead             = A.indexHead $ A.shape arr
-                  (chunk, leftover) = shead `quotRem` 2
-                  start             = (i A.<* leftover) A.?
-                                      (i * (chunk + 1),
-                                       i * chunk + leftover)
-                  end               = ((i+1) A.<* leftover) A.?
-                                      (start + chunk,
-                                       (i+1) * chunk + leftover)
-                  bsh               = A.lift $ (A.indexTail $ A.shape arr) A.:. (end - start)
-                  f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
-              in A.backpermute bsh f arr
+split _dimid arr = return (arr1, arr2)
+    where arrTl = A.indexTail $ A.shape arr
+          arrHd = A.indexHead $ A.shape arr
+          (chunk, leftover) = arrHd `quotRem` 2
+          arr1Sh = arrTl :. chunk
+          arr2Sh = arrTl :. (chunk + leftover)
+          adjust i = let t = A.indexTail i
+                         h = A.indexHead i
+                     in A.lift $ t :. (h + chunk)
+          arr1 = A.generate (A.lift arr1Sh) (\sh -> arr A.! sh)
+          arr2 = A.generate (A.lift arr2Sh) (\sh -> arr A.! (adjust sh))
+
+    --   return (splitArray (A.constant 0), splitArray (A.constant 1))
+    -- where splitArray i =
+    --           let shead             = A.indexHead $ A.shape arr
+    --               (chunk, leftover) = shead `quotRem` 2
+    --               start             = (i A.<* leftover) A.?
+    --                                   (i * (chunk + 1),
+    --                                    i * chunk + leftover)
+    --               end               = ((i+1) A.<* leftover) A.?
+    --                                   (start + chunk,
+    --                                    (i+1) * chunk + leftover)
+    --               bsh               = A.lift $ (A.indexTail $ A.shape arr) A.:. (end - start)
+    --               f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
+    --           in A.backpermute bsh f arr
 
 
 concat :: DimId -> Rep a -> Rep a -> TuneM (Rep a)
@@ -236,3 +242,26 @@ matchShape _ _
 
   | otherwise
   = Nothing
+
+
+
+
+
+
+
+
+
+
+arr :: Acc (A.Vector Double)
+arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
+
+a1 = Fission1.map (+ 1) arr
+a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
+a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
+a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
+
+a1' = do { a1' <- Fission1.map (+ 1) arr; return $ combine a1' }
+a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
+a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
+a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
+
