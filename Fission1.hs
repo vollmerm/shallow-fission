@@ -10,7 +10,7 @@ import           Data.Array.Accelerate                ((:.) (..), Array, Elt,
 import qualified Data.Array.Accelerate                as A
 import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar
-import qualified Data.Array.Accelerate.Interpreter    as I
+import qualified Data.Array.Accelerate.CUDA           as I
 import           Data.Typeable
 import           Prelude                              as P hiding (concat)
 
