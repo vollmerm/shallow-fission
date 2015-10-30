@@ -20,6 +20,15 @@ ta4 = do { a1' <- ta1; a2' <- ta2; F.zipWith (+) a1' a2' }
 tfe x = A.iterate steps sqrt $ bigNum + x
 tfea = do { a4' <- ta4; F.map tfe a4' }
 
+rarr1 :: A.Acc (A.Vector Double)
+rarr1 = A.use $ A.fromList (A.Z :. arrSize) [0..]
+
+ra1 = A.map (+ 1) rarr1
+ra2 = A.map (* 2) ra1
+ra4 = A.zipWith (+) ra1 ra2
+
+rfea = A.map tfe ra4
+
 main = do
   ta4' <- ta4
   tfea' <- tfea
@@ -27,7 +36,9 @@ main = do
       tfea'' = F.combine tfea'
   
   defaultMain [
-      bgroup "Test1" [ bench "ta4"  $ whnf C.run ta4''
-                     , bench "tfea" $ whnf C.run tfea''
+      bgroup "Test1" [ bench "Fission map"  $ whnf C.run ta4''
+                     , bench "Fission map + while" $ whnf C.run tfea''
+                     , bench "Regular map" $ whnf C.run ra4
+                     , bench "Regular map + while" $ whnf C.run rfea
                      ]
      ]
