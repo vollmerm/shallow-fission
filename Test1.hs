@@ -8,7 +8,7 @@ import           Prelude                    as P hiding (concat)
 
 arrSize = 50000
 bigNum  = A.constant $ 100000.0 :: A.Exp Double
-steps   = A.constant $ 1000
+steps   = A.constant $ 5000
 
 tarr1 :: Acc (A.Vector Double)
 tarr1 = mkacc $ A.use (A.fromList (A.Z :. arrSize) [0..])
@@ -36,9 +36,11 @@ main = do
       tfea'' = F.combine tfea'
   
   defaultMain [
-      bgroup "Test1" [ bench "Fission map"  $ whnf C.run ta4''
-                     , bench "Fission map + while" $ whnf C.run tfea''
-                     , bench "Regular map" $ whnf C.run ra4
-                     , bench "Regular map + while" $ whnf C.run rfea
+      bgroup "Test1" [ bench "run fission map"  $ whnf C.run ta4''
+                     , bench "run fission map + while" $ whnf C.run tfea''
+                     , bench "run regular map" $ whnf C.run ra4
+                     , bench "run regular map + while" $ whnf C.run rfea
+                     , bench "runMulti fission map" $ whnf C.runMulti ta4''
+                     , bench "runMulti fission map + while" $ whnf C.runMulti tfea''
                      ]
      ]
