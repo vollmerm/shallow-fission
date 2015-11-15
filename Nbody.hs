@@ -1,4 +1,4 @@
-module Nbody where
+module Main where
 
 import           Data.Array.Accelerate ((:.) (..), Array, Elt, Exp, Shape)
 import           Data.Array.Accelerate as A
