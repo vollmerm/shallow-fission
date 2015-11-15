@@ -10,7 +10,7 @@ import           Data.Array.Accelerate                ((:.) (..), Array, Elt,
 import qualified Data.Array.Accelerate                as A
 import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar
-import qualified Data.Array.Accelerate.CUDA           as I
+import qualified Data.Array.Accelerate.Interpreter    as I
 import           Data.Typeable
 import           Prelude                              as P hiding (concat)
 
@@ -59,6 +59,14 @@ run (MkAcc (Concat 0 as))
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
     | otherwise = run0 (MkAcc (Concat 0 as))
+
+sfoldl :: forall sh a b. (Shape sh, Slice sh, Elt a, Elt b)
+       => (A.Exp a -> A.Exp b -> A.Exp a)
+       -> A.Exp a
+       -> A.Exp sh
+       -> Acc (Array (sh :. Int) b)
+       -> A.Exp a
+sfoldl = undefined
 
 map1n :: (Slice ix, Shape ix, Elt a, Elt b) =>
          (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->

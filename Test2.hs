@@ -1,11 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Main where
 import           Criterion.Main
-import           Data.Array.Accelerate      ((:.) (..), Array, Elt, Shape)
-import qualified Data.Array.Accelerate      as A
-import qualified Data.Array.Accelerate.CUDA as C
-import           Fission1                   as F
-import           Prelude                    as P hiding (concat)
+import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
+                                                    Shape)
+import qualified Data.Array.Accelerate             as A
+import qualified Data.Array.Accelerate.Interpreter as C
+import           Fission1                          as F
+import           Prelude                           as P hiding (concat)
 
 testArrN :: Int -> A.Acc (A.Vector Double)
 testArrN x = A.use $ A.fromList (A.Z :. x) [0..]
@@ -13,7 +14,7 @@ testArrN x = A.use $ A.fromList (A.Z :. x) [0..]
 whileLoopF :: Int -> TuneM (Acc (A.Vector Double))
 whileLoopF x = do
   let arr = mkacc $ A.use (A.fromList (A.Z :. x) [0..])
-  arr' <- F.map (+ 1.0) arr 
+  arr' <- F.map (+ 1.0) arr
   F.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) arr'
 
 whileLoopN x = A.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) (A.map (+ 1.0) (testArrN x))
@@ -42,4 +43,4 @@ main = do
                             , bench "N30000" $ whnf C.run (whileLoopN 30000)
                             ]
        ]
-  
+

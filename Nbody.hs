@@ -1,22 +1,28 @@
-module Nbody where
+module Main where
 
-import           Data.Array.Accelerate ((:.) (..), Array, Elt, Exp, Shape)
-import           Data.Array.Accelerate as A
+import           Data.Array.Accelerate ((:.) (..), Array, Elt, Exp, IsFloating,
+                                        IsNum, Scalar, Shape, Vector, Z (..),
+                                        constant, lift, the, unlift)
+import qualified Data.Array.Accelerate as A
 import           Fission1              as F
 import           Prelude               as P hiding (concat, map)
+
+
+main = undefined
+
 
 -- | Calculate accelerations on these particles in a naïve O(n^2) way.
 --
 --   This maps a _sequential_ reduction to get the total contribution for this
 --   body from all other bodies in the system.
 --
-calcAccels :: Exp R -> A.Acc (Vector PointMass) -> TuneM (F.Acc (Vector Accel))
-calcAccels epsilon bodies'
-  = let bodies          = mkacc bodies'
-        move body       = A.sfoldl (\acc next -> acc .+. accel epsilon body next)
+calcAccels :: Exp R -> F.Acc (Vector PointMass)
+           -> TuneM (F.Acc (Vector Accel))
+calcAccels epsilon bodies
+  = let move body       = F.sfoldl (\acc next -> acc .+. accel epsilon body next)
                                    (vec 0)
                                    (constant Z)
-                                   bodies' -- Is this correct?
+                                   bodies -- Is this correct?
     in
     F.map move bodies
 
@@ -72,6 +78,61 @@ positionOfPointMass = A.fst
 
 massOfPointMass :: Exp PointMass -> Exp Mass
 massOfPointMass = A.snd
+
+-- | Set the mass of a Body.
+--
+setMassOfBody :: Exp Mass -> Exp Body -> Exp Body
+setMassOfBody mass body = lift (pointmass, vel, acc)
+  where
+    vel         = velocityOfBody body
+    acc         = accelOfBody body
+    pos         = positionOfPointMass (pointMassOfBody body)
+    pointmass   = lift (pos, mass)      :: Exp PointMass
+
+
+-- | Set the acceleration of a Body.
+--
+setAccelOfBody :: Exp Accel -> Exp Body -> Exp Body
+setAccelOfBody acc body = lift (pm, vel, acc)
+  where
+    pm          = pointMassOfBody body
+    vel         = velocityOfBody body
+
+
+-- | Set the starting velocity of a Body.
+--   It is set to rotate around the origin, with the speed proportional
+--   to the sqrt of the distance from it. This seems to make nice simulations.
+--
+setStartVelOfBody :: Exp R -> Exp Body -> Exp Body
+setStartVelOfBody startVel body = lift (pm, vel'', acc)
+  where
+    pm          = pointMassOfBody body
+    acc         = accelOfBody body
+    pos         = positionOfPointMass pm
+
+    pos'        = normalise pos
+    vel'        = lift (y', -x', z')
+    vel''       = (sqrt (magnitude pos) * startVel) *. vel'
+
+    (x',y',z')  = unlift pos'   :: Vec (Exp R)
+
+
+-- | Advance a body forwards in time.
+--
+advanceBody :: Exp Time -> Exp Body -> Exp Body
+advanceBody time body = lift ( pm', vel', acc )
+  where
+    pm          = pointMassOfBody body
+    pos         = positionOfPointMass pm
+    vel         = velocityOfBody body
+    acc         = accelOfBody body
+    mass        = massOfPointMass pm
+
+    pm'         = lift (pos', mass)             :: Exp PointMass
+    pos'        = pos .+. time *. vel
+    vel'        = vel .+. time *. acc
+
+
 
 -- Types -----------------------------------------------------------------------
 -- We're using tuples instead of ADTs and defining Elt instances
@@ -171,3 +232,62 @@ vzipWith f v1 v2
         (x2,y2,z2) = unlift v2
     in
     lift (f x1 x2, f y1 y2, f z1 z2)
+
+
+data World
+  = World
+  {
+    worldBodies :: !(Vector Body)                       -- ^ Bodies in the simulation
+  , worldSteps  :: {-# UNPACK #-} !Int                  -- ^ Number of steps taken in the simulation so far
+  , worldTime   :: {-# UNPACK #-} !Time                 -- ^ Current simulation time
+  }
+
+
+-- | Move bodies under the influence of acceleration
+--
+advanceBodies
+    :: (Acc (Vector PointMass) ->
+        TuneM (Acc (Vector Accel)))     -- ^ Function to compute accelerations at each point
+    -> A.Acc (Scalar Time)              -- ^ Time step
+    -> A.Acc (Vector Body)              -- ^ Bodies
+    -> TuneM (Acc (Vector Body))
+advanceBodies calcAccels timeStep bodies = do
+  let bodies' = mkacc bodies
+  bodies'' <- F.map pointMassOfBody bodies'
+  accels   <- calcAccels bodies''
+  let advance b a = let m = massOfPointMass (pointMassOfBody b)
+                        a' = m *. a
+                    in advanceBody (the timeStep) (setAccelOfBody a' b)
+  F.zipWith advance bodies' accels
+  -- = let
+  --       -- Calculate the accelerations on each body.
+  --       accels          = calcAccels
+  --                       $ A.map pointMassOfBody bodies
+
+  --       -- Apply the accelerations to the bodies and advance them
+  --       advance b a     = let m         = massOfPointMass (pointMassOfBody b)
+  --                             a'        = m *. a
+  --                         in advanceBody (the timeStep) (setAccelOfBody a' b)
+  --   in
+  --   A.zipWith advance bodies accels
+
+
+-- | Advance a cluster of bodies forward in time
+--
+advanceWorld
+    :: (Scalar Time -> Vector Body -> Vector Body)      -- ^ Function to update body positions
+    -> Time
+    -> World
+    -> World
+advanceWorld advance timeStep world
+  = let
+        -- Update the bodies
+        bodies' = advance (A.fromList Z [timeStep]) (worldBodies world)
+
+        -- Update the world
+        steps'  = worldSteps world + 1
+        time'   = worldTime  world + timeStep
+
+    in  world   { worldBodies   = bodies'
+                , worldSteps    = steps'
+                , worldTime     = time' }

@@ -19,13 +19,13 @@ library
   exposed-modules:     Fission1, Fission2
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base, accelerate, criterion, accelerate-cuda
+  build-depends:       base, accelerate, criterion
   -- hs-source-dirs:      
   default-language:    Haskell2010
 
 executable Test1
   main-is:             Test1.hs
-  build-depends:       base, accelerate, criterion, accelerate-cuda
+  build-depends:       base, accelerate, criterion
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -38,7 +38,20 @@ executable Test1
 
 executable Test2
   main-is:             Test2.hs
-  build-depends:       base, accelerate, criterion, accelerate-cuda
+  build-depends:       base, accelerate, criterion
+  other-modules:       Fission1
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2
+                       -threaded
+                       -fpedantic-bottoms
+                       -fno-full-laziness
+                       -fno-excess-precision
+                       -eventlog
+                       -rtsopts
+
+executable Nbody
+  main-is:             Nbody.hs
+  build-depends:       base, accelerate, criterion
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
