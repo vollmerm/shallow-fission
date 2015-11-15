@@ -36,7 +36,7 @@ main = let epsilon     = 50
                          $ A.zipWith setMassOfBody (A.use masses)
                          $ A.map unitBody (A.use positions)
            step bodies = do
-             b <- advanceBodies (calcAccels $ constant epsilon) timeS $ A.use bodies
+             b <- advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
              return $ F.run b
        in defaultMain [
          bgroup "Nbody" [ bench ("n = " ++ show n) $ whnf step bodies
@@ -50,13 +50,13 @@ main = let epsilon     = 50
 --   This maps a _sequential_ reduction to get the total contribution for this
 --   body from all other bodies in the system.
 --
-calcAccels :: Exp R -> F.Acc (Vector PointMass)
+calcAccels :: Exp R -> A.Acc (Vector PointMass) -> F.Acc (Vector PointMass)
            -> TuneM (F.Acc (Vector Accel))
-calcAccels epsilon bodies
-  = let move body       = F.sfoldl (\acc next -> acc .+. accel epsilon body next)
+calcAccels epsilon abodies bodies
+  = let move body       = A.sfoldl (\acc next -> acc .+. accel epsilon body next)
                                    (vec 0)
                                    (constant Z)
-                                   bodies -- Is this correct?
+                                   abodies -- Is this correct?
     in
     F.map move bodies
 
@@ -280,15 +280,17 @@ data World
 -- | Move bodies under the influence of acceleration
 --
 advanceBodies
-    :: (Acc (Vector PointMass) ->
+    :: (A.Acc (Vector PointMass) ->
+        Acc (Vector PointMass) ->
         TuneM (Acc (Vector Accel)))     -- ^ Function to compute accelerations at each point
     -> A.Acc (Scalar Time)              -- ^ Time step
     -> A.Acc (Vector Body)              -- ^ Bodies
     -> TuneM (Acc (Vector Body))
 advanceBodies calcAccels timeStep bodies = do
-  let bodies' = mkacc bodies
-  bodies'' <- F.map pointMassOfBody bodies'
-  accels   <- calcAccels bodies''
+  pmbodies <- return $ A.map pointMassOfBody bodies
+  let pmbodies' = mkacc pmbodies
+      bodies'   = mkacc bodies
+  accels <- calcAccels pmbodies pmbodies'
   let advance b a = let m = massOfPointMass (pointMassOfBody b)
                         a' = m *. a
                     in advanceBody (the timeStep) (setAccelOfBody a' b)

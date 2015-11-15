@@ -183,6 +183,12 @@ zipWith f (MkAcc (Concat d1 [m11,m12])) (MkAcc (Concat d2 [m21,m22])) =
     do let m1' = A.zipWith f m11 m21
            m2' = A.zipWith f m12 m22
        return $ MkAcc $ Concat d1 [m1',m2']
+zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m21,m22])) =
+  do dim <- askTuner [0]
+     (m11,m12) <- split dim m1
+     let m1' = A.zipWith f m11 m21
+         m2' = A.zipWith f m12 m22
+     return $ MkAcc $ Concat d1 [m1',m2']
 zipWith _ _ _ = error "Not implemented"
 
 split :: (A.Slice sh,Shape sh,Elt a)
