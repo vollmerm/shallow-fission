@@ -1,10 +1,11 @@
 module Main where
 import           Criterion.Main
-import           Data.Array.Accelerate      ((:.) (..), Array, Elt, Shape)
-import qualified Data.Array.Accelerate      as A
-import qualified Data.Array.Accelerate.CUDA as C
-import           Fission1                   as F
-import           Prelude                    as P hiding (concat)
+import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
+                                                    Shape)
+import qualified Data.Array.Accelerate             as A
+import qualified Data.Array.Accelerate.Interpreter as C
+import           Fission1                          as F
+import           Prelude                           as P hiding (concat)
 
 arrSize = 50000
 bigNum  = A.constant $ 100000.0 :: A.Exp Double
@@ -34,13 +35,13 @@ main = do
   tfea' <- tfea
   let ta4''  = F.combine ta4'
       tfea'' = F.combine tfea'
-  
+
   defaultMain [
       bgroup "Test1" [ bench "run fission map"  $ whnf C.run ta4''
                      , bench "run fission map + while" $ whnf C.run tfea''
                      , bench "run regular map" $ whnf C.run ra4
                      , bench "run regular map + while" $ whnf C.run rfea
-                     , bench "runMulti fission map" $ whnf C.runMulti ta4''
-                     , bench "runMulti fission map + while" $ whnf C.runMulti tfea''
+--                     , bench "runMulti fission map" $ whnf C.runMulti ta4''
+--                     , bench "runMulti fission map + while" $ whnf C.runMulti tfea''
                      ]
      ]

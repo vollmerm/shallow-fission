@@ -1,11 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Main where
 import           Criterion.Main
-import           Data.Array.Accelerate      ((:.) (..), Array, Elt, Shape)
-import qualified Data.Array.Accelerate      as A
-import qualified Data.Array.Accelerate.CUDA as C
-import           Fission1                   as F
-import           Prelude                    as P hiding (concat)
+import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
+                                                    Shape)
+import qualified Data.Array.Accelerate             as A
+import qualified Data.Array.Accelerate.Interpreter as C
+import           Fission1                          as F
+import           Prelude                           as P hiding (concat)
 
 testArrN :: A.Acc (A.Vector Double)
 testArrN = A.use $ A.fromList (A.Z :. 100000) [0..]
@@ -47,4 +48,4 @@ main = do
                             , bench "N 30000" $ whnf C.run (whileLoopN 30000)
                             ]
        ]
-  
+
