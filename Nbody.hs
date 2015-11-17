@@ -20,11 +20,15 @@ import qualified System.Random.MWC                 as R
 
 --advance = advanceWorld step
 
+testCombined = do
+  comp <- test
+  return $ F.combine comp
+
 test = let epsilon     = 50
            startSpeed  = 1
-           n           = 1000
+           n           = 10
            radius      = 500
-           size        = 1000
+           size        = 100
            mass        = 40
            timeS       = A.use $ A.fromList Z [0.1]
            masses      = randomArray (uniformR (1, mass)) (Z :. n)
