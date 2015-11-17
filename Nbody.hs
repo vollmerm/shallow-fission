@@ -20,7 +20,20 @@ import qualified System.Random.MWC                 as R
 
 --advance = advanceWorld step
 
-
+test = let epsilon     = 50
+           startSpeed  = 1
+           n           = 1000
+           radius      = 500
+           size        = 1000
+           mass        = 40
+           timeS       = A.use $ A.fromList Z [0.1]
+           masses      = randomArray (uniformR (1, mass)) (Z :. n)
+           positions   = randomArray (cloud (size,size) radius) (Z :. n)
+           bodies      = I.run
+                         $ A.map (setStartVelOfBody . constant $ startSpeed)
+                         $ A.zipWith setMassOfBody (A.use masses)
+                         $ A.map unitBody (A.use positions)
+       in advanceBodies (calcAccels (constant epsilon)) timeS (A.use bodies)
 
 main = let epsilon     = 50
            startSpeed  = 1
