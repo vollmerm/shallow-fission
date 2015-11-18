@@ -4,7 +4,7 @@ import           Criterion.Main
 import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
                                                     Shape)
 import qualified Data.Array.Accelerate             as A
-import qualified Data.Array.Accelerate.Interpreter as C
+import qualified Data.Array.Accelerate.CUDA        as C
 import           Fission1                          as F
 import           Prelude                           as P hiding (concat)
 

@@ -10,7 +10,7 @@ packages:
 - ./accelerate/accelerate-cuda
 
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
-extra-deps: [cuda-0.6.7.0]
+extra-deps: [cuda-0.6.7.0, c2hs-0.26.2]
 
 # Override default flag values for local packages and extra-deps
 flags: {}
