@@ -7,12 +7,13 @@ module Main where
 
 import           Criterion.Main
 import           Data.Array.Accelerate             as A
-import           Data.Array.Accelerate.Interpreter as C
+import           Data.Array.Accelerate.CUDA        as C
 import qualified Fission1                          as F
 import           Prelude                           as P
 import           Random
 import           System.Environment
 import           System.Environment
+
 
 main = do
   n' <- getEnv "N"
@@ -21,10 +22,10 @@ main = do
       r = options n
   acc <- blackscholes r
   if b' == "multi"
-  then undefined
-  -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf C.runMulti acc
-  --                                          ]
-  --                  ]
+  -- then undefined
+  then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " P.++ (show n)) $ whnf C.runMulti acc
+                                           ]
+                   ]
   else defaultMain [ bgroup "Blackscholes" [ bench ("normal: n = " P.++ (show n)) $ whnf C.run (blackscholes' r)
                                            ]
                    ]
