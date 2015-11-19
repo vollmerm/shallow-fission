@@ -13,6 +13,7 @@ import           Data.Array.Accelerate.Array.Sugar
 import qualified Data.Array.Accelerate.Interpreter    as I
 import           Data.Typeable
 import           Prelude                              as P hiding (concat)
+import           Unsafe.Coerce
 
 type TuneM a = IO a
 
@@ -97,6 +98,50 @@ map f arr
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1n f arr 2
     | otherwise = map0 f arr
 
+-- Doesn't work
+-- replicaten :: (Slice slix, Elt e)
+--            => A.Exp slix
+--            -> Acc (Array (A.SliceShape slix) e)
+--            -> Int
+--            -> TuneM (Acc (Array (A.FullShape  slix) e))
+-- replicaten e (MkAcc (Concat _ [])) n = error "Nothing to do"
+-- replicaten e (MkAcc (Concat d [arr])) n =
+--     do dim     <- askTuner [0..n-1]
+--        (a1,a2) <- split dim arr
+--        let m1 = A.replicate e a1
+--            m2 = A.replicate e a2
+--        return $ MkAcc $ Concat d [m1,m2] -- Is this even right?
+-- replicaten _ _ _ = error "not implemented at all"
+
+-- replicate :: forall ix e. (Slice ix, Elt e)
+--           => A.Exp ix
+--           -> Acc (Array (A.SliceShape ix) e)
+--           -> TuneM (Acc (Array (A.FullShape ix) e))
+-- replicate e arr
+--     | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = error "don't care"
+--     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = replicaten e arr 1
+--     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = replicaten e arr 2
+--     | otherwise = error "still don't care"
+
+-- replicate :: (Slice ix, Elt e) => A.Exp ix -> Acc (Array (A.SliceShape ix) e)
+--           -> TuneM (Acc (Array (A.FullShape ix) e))
+replicate e (MkAcc (Concat _ [])) = error "Nothing to do"
+replicate e (MkAcc (Concat d [arr])) =
+    generate (A.shape arr') (\x -> arr' A.! x)
+        where arr' = A.replicate e arr
+replicate e (MkAcc (Concat d [arr])) =
+    return $ MkAcc $ Concat 0 [A.generate (A.shape arr') (\x -> arr' A.! x)]
+        where arr' = A.replicate e arr
+replicate _ _ = error "don't care yet"
+
+transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
+
+
+generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
+         -> TuneM (Acc (Array ix a))
+generate e f = do  -- should be smarter
+  arr     <- return $ A.generate e f
+  return $ MkAcc $ Concat 0 [arr]
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->
@@ -224,7 +269,6 @@ split _dimid arr = return (arr1, arr2)
     --               f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
     --           in A.backpermute bsh f arr
 
-
 concat :: DimId -> Rep a -> Rep a -> TuneM (Rep a)
 concat d3 (Concat d1 ls1) (Concat d2 ls2)
  | d1 == d2 && d1 == d3 = return $ Concat d3 (ls1 ++ ls2)
@@ -259,6 +303,18 @@ matchShape _ _
   | otherwise
   = Nothing
 
+matchSlice --- ?????
+  :: forall sh sh'. (Slice sh, Slice sh')
+  => sh
+  -> sh'
+  -> Maybe (sh :=: sh')
+matchSlice _ _
+  | Just REFL <- matchTupleType (eltType (undefined::sh))
+                                (eltType (undefined::sh'))
+  = gcast REFL
+
+  | otherwise
+  = Nothing
 
 
 
