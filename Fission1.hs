@@ -41,6 +41,14 @@ combine (MkAcc (Concat 0 as)) = foldr1 (A.++) $ P.map A.compute as
 
 combine0 (MkAcc (Concat 0 [a])) = a
 
+combine'
+  :: (Slice sh, Shape sh, Elt e) =>
+     Acc (Array (sh :. Int) e) -> A.Acc (Array (sh :. Int) e)
+combine' (MkAcc (Concat 0 [a])) = a
+combine' (MkAcc (Concat 0 as)) = foldr1 (A.++) as
+
+
+
 run1 :: (Slice ix, Shape ix, Elt a) =>
         Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
 run1 (MkAcc (Concat _ [])) = error "No arrays to concat"
@@ -127,11 +135,21 @@ map f arr
 --           -> TuneM (Acc (Array (A.FullShape ix) e))
 replicate e (MkAcc (Concat _ [])) = error "Nothing to do"
 replicate e (MkAcc (Concat d [arr])) =
-    generate (A.shape arr') (\x -> arr' A.! x)
-        where arr' = A.replicate e arr
-replicate e (MkAcc (Concat d [arr])) =
-    return $ MkAcc $ Concat 0 [A.generate (A.shape arr') (\x -> arr' A.! x)]
-        where arr' = A.replicate e arr
+    -- generate (A.shape arr') (\s -> arr' A.! s)
+    -- where arr' = A.replicate e arr
+    return $ MkAcc $ Concat 0 [arr1,arr2]
+        where arr'   = A.replicate e arr
+              shap   = A.shape arr'
+              arrHd  = A.indexHead shap
+              arrTl  = A.indexTail shap
+              (chunk, leftover) = arrHd `quotRem` 2
+              arr1Sh = arrTl :. chunk
+              arr2Sh = arrTl :. (chunk + leftover)
+              adjust i = let t = A.indexTail i
+                             h = A.indexHead i
+                         in A.lift $ t :. (h + chunk)
+              arr1   = A.generate (A.lift arr1Sh) (\sh -> arr' A.! sh)
+              arr2   = A.generate (A.lift arr2Sh) (\sh -> arr' A.! (adjust sh))
 replicate _ _ = error "don't care yet"
 
 transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]

@@ -10,7 +10,7 @@ import           Data.Array.Accelerate             ((:.) (..), All (..), Array,
                                                     Z (..), constant, lift, the,
                                                     unlift)
 import qualified Data.Array.Accelerate             as A
-import qualified Data.Array.Accelerate.Array.Sugar as S
+import           Data.Array.Accelerate.Array.Sugar as S
 import qualified Data.Array.Accelerate.Interpreter as C
 import           Fission1                          as F
 import           Prelude                           as P hiding (concat, map)
@@ -80,9 +80,15 @@ matMul arr
          arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
          arrt    <- return $ A.transpose arr'
          brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
-         c       <- return $ A.zipWith (*) arrRepl brrRepl
-         r       <- F.fold (+) 0 $ mkacc c
-         return $ F.combine r
+         c       <- return $ mkacc $ A.zipWith (*) arrRepl brrRepl
+
+    -- = do arr'    <- return $ mkacc arr
+    --      arrRepl <- F.replicate (lift $ Z :. All   :. colsB :. All) arr'
+    --      arrt    <- F.transpose arr'
+    --      brrRepl <- F.replicate (lift $ Z :. rowsA :. All   :. All) arrt
+    --      c       <- F.zipWith (*) arrRepl brrRepl
+         r       <- F.fold (+) 0 c
+         return  $  F.combine r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
@@ -97,4 +103,14 @@ matMul arr
 --     where
 --       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
 --       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
-
+-- test1  :: (IsNum e, Elt e) => A.Acc (Matrix e)
+--        -> TuneM (Acc (Matrix e))
+test1 arr
+    = do let arrRepl = A.replicate (lift $ Z :. All   :. colsB :. All) arr
+             brrRepl = A.replicate (lift $ Z :. rowsA :. All   :. All) $ A.transpose arr
+             newArr  = A.zipWith (*) arrRepl brrRepl
+         (a1,a2) <- split 0 newArr
+         return $ A.zipWith (+) (A.fold (+) 0 a1) (A.fold (+) 0 a2)
+    where
+      Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
+      Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
