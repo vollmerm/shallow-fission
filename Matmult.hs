@@ -81,7 +81,7 @@ matMul arr
          arrt    <- return $ A.transpose arr'
          brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
          c       <- return $ mkacc $ A.zipWith (*) arrRepl brrRepl
-
+    -- this one has the extra backpermutes:
     -- = do arr'    <- return $ mkacc arr
     --      arrRepl <- F.replicate (lift $ Z :. All   :. colsB :. All) arr'
     --      arrt    <- F.transpose arr'
