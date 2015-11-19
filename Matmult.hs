@@ -24,8 +24,8 @@ main = do
   let n   = read n' :: Int
       arr = A.use $ A.fromList (Z :. n :. n) [0.0..] :: A.Acc (Array A.DIM2 Float)
       brr = A.use $ A.fromList (Z :. n :. n) [100.0..] :: A.Acc (Array A.DIM2 Float)
-  arr1 <- matMul arr
-  arr2 <- return $ mmultp' (arr,arr)
+  arr1 <- matMul arr brr
+  arr2 <- return $ mmultp' (arr,brr)
   if b' == "multi"
   -- then undefined
   then defaultMain [
@@ -73,16 +73,16 @@ matMul' arr brr
 -----
 -- This generates a weird looking ast, and has 4 kernels (generate, 2 fold, generate)
 -- We should be able to do it in 3, I think... (2 fold, generate)
-matMul :: (IsNum e, Elt e) => A.Acc (Matrix e)
+matMul :: (IsNum e, Elt e) => A.Acc (Matrix e) -> A.Acc (Matrix e)
        -> TuneM (A.Acc (Matrix e))
-matMul arr
+matMul arr brr
     = do arr'    <- return $ arr
          arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
-         arrt    <- return $ A.transpose arr'
+         arrt    <- return $ A.transpose brr
          brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
          c       <- return $ A.zipWith (*) arrRepl brrRepl
          r       <- F.fold (+) 0 $ mkacc c
-         return  $  F.combine' r
+         return  $  F.combine r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
