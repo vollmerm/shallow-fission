@@ -64,7 +64,7 @@ executable Nbody
 
 executable Matmult
   main-is:             Matmult.hs
-  build-depends:       base, accelerate, criterion
+  build-depends:       base, accelerate, criterion, accelerate-cuda
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2

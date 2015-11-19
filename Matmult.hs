@@ -11,7 +11,7 @@ import           Data.Array.Accelerate             ((:.) (..), All (..), Array,
                                                     unlift)
 import qualified Data.Array.Accelerate             as A
 import qualified Data.Array.Accelerate.Array.Sugar as S
-import qualified Data.Array.Accelerate.Interpreter as C
+import qualified Data.Array.Accelerate.CUDA        as C
 import           Fission1                          as F
 import           Prelude                           as P hiding (concat, map)
 import           System.Environment
@@ -27,13 +27,13 @@ main = do
   arr1 <- matMul arr
   arr2 <- return $ mmultp' (arr,arr)
   if b' == "multi"
-  then undefined
-  -- then defaultMain [
-  --           bgroup "MatMult" [ bench ("multi: n =" ++ (show n)) $ whnf C.runMulti arr1
-  --                      ]
-  --          ]
+  -- then undefined
+  then defaultMain [
+            bgroup "MatMult" [ bench ("multi: n = " ++ (show n)) $ whnf C.runMulti arr1
+                       ]
+           ]
   else defaultMain [
-            bgroup "MatMult" [ bench ("normal: n =" ++ (show n)) $ whnf C.run arr2
+            bgroup "MatMult" [ bench ("normal: n = " ++ (show n)) $ whnf C.run arr2
                        ]
            ]
 
@@ -82,7 +82,7 @@ matMul arr
          brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
          c       <- return $ A.zipWith (*) arrRepl brrRepl
          r       <- F.fold (+) 0 $ mkacc c
-         return $ F.combine r
+         return  $  F.combine' r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
