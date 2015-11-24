@@ -157,9 +157,32 @@ transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
 
 generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
          -> TuneM (Acc (Array ix a))
-generate e f = do  -- should be smarter
+generate e f = do
   arr     <- return $ A.generate e f
   return $ MkAcc $ Concat 0 [arr]
+
+generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
+              -> TuneM (Acc (Array ix a))
+generateSplit sh f
+    | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate sh f
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f
+    | otherwise = generate sh f
+
+generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
+          -> TuneM (Acc (Array (ix A.:. Int) a))
+generate1 sh f = return $ MkAcc $ Concat 0 [arr1,arr2]
+    where arrHd = A.indexHead sh
+          arrTl = A.indexTail sh
+          (chunk, leftover) = arrHd `quotRem` 2
+          arr1Sh = arrTl :. chunk
+          arr2Sh = arrTl :. (chunk + leftover)
+          adjust i = let t = A.indexTail i
+                         h = A.indexHead i
+                     in A.lift $ t :. (h + chunk)
+          arr1 = A.generate (A.lift arr1Sh) f
+          arr2 = A.generate (A.lift arr2Sh) $ f . adjust
+
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->
