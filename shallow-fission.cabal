@@ -64,7 +64,7 @@ executable Nbody
 
 executable Matmult
   main-is:             Matmult.hs
-  build-depends:       base, accelerate, criterion
+  build-depends:       base, accelerate, criterion, mwc-random
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -77,7 +77,20 @@ executable Matmult
 
 executable Bs
   main-is:             Bs.hs
-  build-depends:       base, accelerate, criterion
+  build-depends:       base, accelerate, criterion, mwc-random
+  other-modules:       Fission1
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2
+                       -threaded
+                       -fpedantic-bottoms
+                       -fno-full-laziness
+                       -fno-excess-precision
+                       -eventlog
+                       -rtsopts
+
+executable Mandel
+  main-is:             Mandel.hs
+  build-depends:       base, accelerate, criterion, mwc-random
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
