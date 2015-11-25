@@ -22,6 +22,9 @@ newtype Acc a = MkAcc (Rep a)
 
 data Rep a = Concat DimId [A.Acc a]
 
+-- This is the simplest way I can get split point tuning up and running.
+-- Eventually (soon!) this should be a number so we can pinpoint the exact best split point
+data SplitBy = Even | ThirdFirst | ThirdLast | FourthFirst | FourthLast | FifthFirst | FifthLast | TenthFirst | TenthLast
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
@@ -161,30 +164,57 @@ generate e f = do
   arr     <- return $ A.generate e f
   return $ MkAcc $ Concat 0 [arr]
 
-generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
+generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a) -> SplitBy
               -> TuneM (Acc (Array ix a))
-generateSplit sh f
+generateSplit sh f i
     | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate sh f
-    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
-    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f i
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f i
     | otherwise = generate sh f
 
-generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
+generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a) -> SplitBy
           -> TuneM (Acc (Array (ix A.:. Int) a))
-generate1 sh f =
+generate1 sh f i = do
     let arrHd = A.indexHead sh
         arrTl = A.indexTail sh
-    (chunk,leftover) <- askTunerSplit arrHd
-    let arr1Sh = arrTl :. chunk
-        arr2Sh = arrTl :. (chunk + leftover)
+        (ln1,ln2) = askTunerSplit arrHd i
+    let arr1Sh = arrTl :. ln1
+        arr2Sh = arrTl :. ln2
         adjust i = let t = A.indexTail i
                        h = A.indexHead i
-                   in A.lift $ t :. (h + chunk)
+                   in A.lift $ t :. (h + ln1)
         arr1 = A.generate (A.lift arr1Sh) f
         arr2 = A.generate (A.lift arr2Sh) $ f . adjust
     return $ MkAcc $ Concat 0 [arr1,arr2]
 
-askTunerSplit arrHd = return $ arrHd `quotRem` 2
+askTunerSplit arrHd Even = 
+    let (chunk,leftover) = arrHd `quotRem` 2
+    in (chunk, chunk+leftover)
+askTunerSplit arrHd ThirdFirst = 
+    let (chunk,leftover) = arrHd `quotRem` 3
+    in (chunk, chunk+chunk+leftover)
+askTunerSplit arrHd ThirdLast = 
+    let (chunk,leftover) = arrHd `quotRem` 3
+    in (chunk+chunk, chunk+leftover)
+askTunerSplit arrHd FourthFirst =
+    let (chunk,leftover) = arrHd `quotRem` 4
+    in (chunk, chunk+chunk+chunk+leftover)
+askTunerSplit arrHd FourthLast = 
+    let (chunk,leftover) = arrHd `quotRem` 4
+    in (chunk+chunk+chunk, chunk+leftover)
+askTunerSplit arrHd FifthFirst = 
+    let (chunk,leftover) = arrHd `quotRem` 5
+    in (chunk, chunk+chunk+chunk+chunk+leftover)
+askTunerSplit arrHd FifthLast = 
+    let (chunk,leftover) = arrHd `quotRem` 5
+    in (chunk+chunk+chunk+chunk, chunk+leftover)
+askTunerSplit arrHd TenthFirst = 
+    let (chunk,leftover) = arrHd `quotRem` 10
+    in (chunk, (chunk*9)+leftover)
+askTunerSplit arrHd TenthLast = 
+    let (chunk,leftover) = arrHd `quotRem` 10
+    in (chunk*9, chunk+leftover)
+
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->

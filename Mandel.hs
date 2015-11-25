@@ -18,28 +18,51 @@ test =
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
       force arr = indexArray arr (Z:.0:.0) `seq` arr
       compute (size,limit) = do
-        arr <- mandelbrot size size limit $ A.use $ A.fromList Z [view]
+        arr <- mandelbrot size size limit F.Even $ A.use $ A.fromList Z [view]
         return arr
   in compute (size,limit)
 
 main = do
   n' <- getEnv "N"
+  l' <- getEnv "LIMIT"
   b' <- getEnv "BACKEND"
   let size      = read n' :: Int
-      limit     = 255
+      limit     = read l' :: Int
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
       force arr = indexArray arr (Z:.0:.0) `seq` arr
-      compute (size,limit) = do
-        arr <- mandelbrot size size limit $ A.use $ A.fromList Z [view]
-        return $ force $ C.runMulti $ F.combine arr
-      compute' (size,limit) =
-          let arr = mandelbrot' size size limit $ A.use $ A.fromList Z [view]
-          in force $ C.run arr
+  arr1e <- mandelbrot size size limit F.Even $ A.use $ A.fromList Z [view]
+  arr1f <- mandelbrot size size limit F.ThirdFirst $ A.use $ A.fromList Z [view]
+  arr1l <- mandelbrot size size limit F.ThirdLast $ A.use $ A.fromList Z [view]
+  arr1qf <- mandelbrot size size limit F.FourthFirst $ A.use $ A.fromList Z [view]
+  arr1ql <- mandelbrot size size limit F.FourthLast $ A.use $ A.fromList Z [view]
+  arr1ff <- mandelbrot size size limit F.FifthFirst $ A.use $ A.fromList Z [view]
+  arr1fl <- mandelbrot size size limit F.FifthLast $ A.use $ A.fromList Z [view]
+  arr1tf <- mandelbrot size size limit F.TenthFirst $ A.use $ A.fromList Z [view]
+  arr1tl <- mandelbrot size size limit F.TenthLast $ A.use $ A.fromList Z [view]
+  arr2 <- return $ mandelbrot' size size limit $ A.use $ A.fromList Z [view]
+  let arr1e' = F.combine arr1e
+      arr1f' = F.combine arr1f
+      arr1l' = F.combine arr1l
+      arr1qf' = F.combine arr1qf
+      arr1ql' = F.combine arr1ql
+      arr1ff' = F.combine arr1ff
+      arr1fl' = F.combine arr1fl
+      arr1tf' = F.combine arr1tf
+      arr1tl' = F.combine arr1tl
   if b' == "multi"
   then defaultMain
-           [bgroup "Mandel" [ bench ("multi: n = " P.++ (show size)) $ whnf compute (size,limit)]]
+           [bgroup "Mandel" [ bench ("multi 10%: n = " P.++ (show size)) $ whnf C.runMulti arr1tf'
+                            , bench ("multi 20%: n = " P.++ (show size)) $ whnf C.runMulti arr1ff'
+                            , bench ("multi 25%: n = " P.++ (show size)) $ whnf C.runMulti arr1qf'
+                            , bench ("multi 33%: n = " P.++ (show size)) $ whnf C.runMulti arr1f'
+                            , bench ("multi 50%: n = " P.++ (show size)) $ whnf C.runMulti arr1e'
+                            , bench ("multi 66%: n = " P.++ (show size)) $ whnf C.runMulti arr1l'
+                            , bench ("multi 75%: n = " P.++ (show size)) $ whnf C.runMulti arr1ql'
+                            , bench ("multi 80%: n = " P.++ (show size)) $ whnf C.runMulti arr1fl'
+                            , bench ("multi 90%: n = " P.++ (show size)) $ whnf C.runMulti arr1tl'
+                            ]]
   else defaultMain
-           [bgroup "Mandel" [ bench ("normal: n = " P.++ (show size)) $ whnf compute' (size,limit)]]
+           [bgroup "Mandel" [ bench ("normal: n = " P.++ (show size)) $ whnf C.run arr2]]
 
 
 
@@ -70,14 +93,15 @@ mandelbrot
     => Int
     -> Int
     -> Int
+    -> F.SplitBy
     -> Acc (Scalar (View a))
     -> F.TuneM (F.Acc (Array DIM2 Int32))
-mandelbrot screenX screenY depth view =
+mandelbrot screenX screenY depth i view =
   F.generateSplit (constant (Z:.screenY:.screenX))
        (\ix -> let c = initial ix
                in  A.snd $ A.while (\zi -> A.snd zi A.<* lIMIT &&* dot (A.fst zi) A.<* 4)
                        (\zi -> lift1 (next c) zi)
-                       (lift (c, constant 0)))
+                       (lift (c, constant 0))) i
   where
     -- The view plane
     (xmin,ymin,xmax,ymax)     = unlift (the view)
