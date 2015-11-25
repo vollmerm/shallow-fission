@@ -42,6 +42,10 @@ combine
 combine (MkAcc (Concat 0 [a])) = a
 combine (MkAcc (Concat 0 as)) = foldr1 (A.++) $ P.map A.compute as
 
+combineTup2 (MkAcc (Concat 0 [a,b])) = A.zip (A.compute a) (A.compute b)
+combineTup2 _ = error "Not implemented"
+
+
 combine0 (MkAcc (Concat 0 [a])) = a
 
 combine'

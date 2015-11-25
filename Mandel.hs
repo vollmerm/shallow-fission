@@ -40,26 +40,26 @@ main = do
   arr1tf <- mandelbrot size size limit F.TenthFirst $ A.use $ A.fromList Z [view]
   arr1tl <- mandelbrot size size limit F.TenthLast $ A.use $ A.fromList Z [view]
   arr2 <- return $ mandelbrot' size size limit $ A.use $ A.fromList Z [view]
-  let arr1e' = F.combine arr1e
-      arr1f' = F.combine arr1f
-      arr1l' = F.combine arr1l
-      arr1qf' = F.combine arr1qf
-      arr1ql' = F.combine arr1ql
-      arr1ff' = F.combine arr1ff
-      arr1fl' = F.combine arr1fl
-      arr1tf' = F.combine arr1tf
-      arr1tl' = F.combine arr1tl
+  let arr1e' = F.combineTup2 arr1e
+      arr1f' = F.combineTup2 arr1f
+      arr1l' = F.combineTup2 arr1l
+      arr1qf' = F.combineTup2 arr1qf
+      arr1ql' = F.combineTup2 arr1ql
+      arr1ff' = F.combineTup2 arr1ff
+      arr1fl' = F.combineTup2 arr1fl
+      arr1tf' = F.combineTup2 arr1tf
+      arr1tl' = F.combineTup2 arr1tl
   if b' == "multi"
   then defaultMain
-           [bgroup "Mandel" [ bench ("multi 10%: n = " P.++ (show size)) $ whnf C.runMulti arr1tf'
-                            , bench ("multi 20%: n = " P.++ (show size)) $ whnf C.runMulti arr1ff'
-                            , bench ("multi 25%: n = " P.++ (show size)) $ whnf C.runMulti arr1qf'
-                            , bench ("multi 33%: n = " P.++ (show size)) $ whnf C.runMulti arr1f'
-                            , bench ("multi 50%: n = " P.++ (show size)) $ whnf C.runMulti arr1e'
-                            , bench ("multi 66%: n = " P.++ (show size)) $ whnf C.runMulti arr1l'
-                            , bench ("multi 75%: n = " P.++ (show size)) $ whnf C.runMulti arr1ql'
-                            , bench ("multi 80%: n = " P.++ (show size)) $ whnf C.runMulti arr1fl'
-                            , bench ("multi 90%: n = " P.++ (show size)) $ whnf C.runMulti arr1tl'
+           [bgroup "Mandel" [ bench ("multi 10%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1tf'
+                            , bench ("multi 20%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1ff'
+                            , bench ("multi 25%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1qf'
+                            , bench ("multi 33%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1f'
+                            , bench ("multi 50%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1e'
+                            , bench ("multi 66%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1l'
+                            , bench ("multi 75%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1ql'
+                            , bench ("multi 80%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1fl'
+                            , bench ("multi 90%: limit = " P.++ (show limit)) $ whnf C.runMulti arr1tl'
                             ]]
   else defaultMain
            [bgroup "Mandel" [ bench ("normal: n = " P.++ (show size)) $ whnf C.run arr2]]
