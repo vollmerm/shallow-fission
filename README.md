@@ -1,3 +1,7 @@
+## Build status
+
+ * Jenkins: [![Build Status](http://tester-lin.soic.indiana.edu:8080/buildStatus/icon?job=accelerate-shallow-fission)](http://tester-lin.soic.indiana.edu:8080/job/accelerate-shallow-fission/)
+
 ## Haskell code
 
 ```haskell
