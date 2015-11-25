@@ -10,7 +10,7 @@ import           Data.Array.Accelerate                ((:.) (..), Array, Elt,
 import qualified Data.Array.Accelerate                as A
 import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar
-import qualified Data.Array.Accelerate.Interpreter    as I
+import qualified Data.Array.Accelerate.CUDA           as I
 import           Data.Typeable
 import           Prelude                              as P hiding (concat)
 import           Unsafe.Coerce
@@ -157,9 +157,34 @@ transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
 
 generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
          -> TuneM (Acc (Array ix a))
-generate e f = do  -- should be smarter
+generate e f = do
   arr     <- return $ A.generate e f
   return $ MkAcc $ Concat 0 [arr]
+
+generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
+              -> TuneM (Acc (Array ix a))
+generateSplit sh f
+    | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate sh f
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f
+    | otherwise = generate sh f
+
+generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
+          -> TuneM (Acc (Array (ix A.:. Int) a))
+generate1 sh f =
+    let arrHd = A.indexHead sh
+        arrTl = A.indexTail sh
+    (chunk,leftover) <- askTunerSplit arrHd
+    let arr1Sh = arrTl :. chunk
+        arr2Sh = arrTl :. (chunk + leftover)
+        adjust i = let t = A.indexTail i
+                       h = A.indexHead i
+                   in A.lift $ t :. (h + chunk)
+        arr1 = A.generate (A.lift arr1Sh) f
+        arr2 = A.generate (A.lift arr2Sh) $ f . adjust
+    return $ MkAcc $ Concat 0 [arr1,arr2]
+
+askTunerSplit arrHd = return $ arrHd `quotRem` 2
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->
