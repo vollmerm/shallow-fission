@@ -175,17 +175,30 @@ generateSplit sh f
 
 generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
           -> TuneM (Acc (Array (ix A.:. Int) a))
-generate1 sh f = return $ MkAcc $ Concat 0 [arr1,arr2]
-    where arrHd = A.indexHead sh
-          arrTl = A.indexTail sh
-          (chunk, leftover) = arrHd `quotRem` 2
-          arr1Sh = arrTl :. chunk
-          arr2Sh = arrTl :. (chunk + leftover)
+generate1 sh f = do
+    let arrHd = A.indexHead sh
+        arrTl = A.indexTail sh
+    (ln1, ln2) <- askTunerSplit arrHd
+    let   arr1Sh = arrTl :. ln1
+          arr2Sh = arrTl :. ln2
           adjust i = let t = A.indexTail i
                          h = A.indexHead i
-                     in A.lift $ t :. (h + chunk)
+                     in A.lift $ t :. (h + ln1)
           arr1 = A.generate (A.lift arr1Sh) f
           arr2 = A.generate (A.lift arr2Sh) $ f . adjust
+    return $ MkAcc $ Concat 0 [arr1,arr2]
+
+askTunerSplit hd = do
+  params <- ask
+  let splitP = case lookup "split" params of
+                 Nothing -> 2
+                 Just e  -> e
+      (chunk, leftover) = quotRem hd $ A.constant splitP
+  return $ if splitP > 1
+           then (chunk, (chunk*(A.constant (splitP-1)))+leftover)
+           else if splitP < -1
+                then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
+                else error "Can't split like that"
 
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
