@@ -19,7 +19,7 @@ main = do
   b' <- getEnv "BACKEND"
   let n = read n' :: Int
       r = options n
-  acc <- blackscholes r
+  acc <- F.runTune2 $ blackscholes r
   if b' == "multi"
   then undefined
   -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf C.runMulti acc

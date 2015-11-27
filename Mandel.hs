@@ -28,7 +28,7 @@ main =
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
       force arr = indexArray arr (Z:.0:.0) `seq` arr
       compute (size,limit) = do
-        arr <- mandelbrot size size limit $ A.use $ A.fromList Z [view]
+        arr <- F.runTune2 $ mandelbrot size size limit $ A.use $ A.fromList Z [view]
         return $ force $ C.run $ F.combine arr
   in defaultMain
          [bgroup "Mandel" [ bench ("size = " P.++ (show size)) $ whnf compute (size,limit)]]

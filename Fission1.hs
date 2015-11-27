@@ -5,6 +5,8 @@
 {-# LANGUAGE TypeOperators       #-}
 module Fission1 where
 import           Control.Monad
+import           Control.Monad
+import           Control.Monad.Reader
 import           Data.Array.Accelerate                ((:.) (..), Array, Elt,
                                                        Shape)
 import qualified Data.Array.Accelerate                as A
@@ -15,7 +17,9 @@ import           Data.Typeable
 import           Prelude                              as P hiding (concat)
 import           Unsafe.Coerce
 
-type TuneM a = IO a
+type TuneM a = ReaderT [(String,Int)] IO a
+
+runTune2 f = runReaderT f [("split",2)]
 
 newtype Acc a = MkAcc (Rep a)
   deriving Show

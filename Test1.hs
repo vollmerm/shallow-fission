@@ -1,4 +1,5 @@
 module Main where
+import           Control.Monad.Reader
 import           Criterion.Main
 import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
                                                     Shape)
@@ -6,7 +7,6 @@ import qualified Data.Array.Accelerate             as A
 import qualified Data.Array.Accelerate.Interpreter as C
 import           Fission1                          as F
 import           Prelude                           as P hiding (concat)
-
 arrSize = 50000
 bigNum  = A.constant $ 100000.0 :: A.Exp Double
 steps   = A.constant $ 5000
@@ -31,8 +31,8 @@ ra4 = A.zipWith (+) ra1 ra2
 rfea = A.map tfe ra4
 
 main = do
-  ta4' <- ta4
-  tfea' <- tfea
+  ta4' <- runTune2 ta4
+  tfea' <- runTune2 tfea
   let ta4''  = F.combine ta4'
       tfea'' = F.combine tfea'
 

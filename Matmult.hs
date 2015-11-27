@@ -24,7 +24,7 @@ main = do
   let n   = read n' :: Int
       arr = A.use $ A.fromList (Z :. n :. n) [0.0..] :: A.Acc (Array A.DIM2 Float)
       brr = A.use $ A.fromList (Z :. n :. n) [100.0..] :: A.Acc (Array A.DIM2 Float)
-  arr1 <- matMul arr
+  arr1 <- runTune2 $ matMul arr
   arr2 <- return $ mmultp' (arr,arr)
   if b' == "multi"
   then undefined

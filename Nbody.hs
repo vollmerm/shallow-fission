@@ -53,7 +53,7 @@ main = let epsilon     = 50
                          $ A.zipWith setMassOfBody (A.use masses)
                          $ A.map unitBody (A.use positions)
            step bodies = do
-             b <- advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
+             b <- runTune2 $ advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
              return $ F.run b
        in defaultMain [
          bgroup "Nbody" [ bench ("n = " ++ show n) $ whnf step bodies

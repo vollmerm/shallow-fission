@@ -19,13 +19,13 @@ library
   exposed-modules:     Fission1, Fission2
   other-modules:       Random
   -- other-extensions:    
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   -- hs-source-dirs:      
   default-language:    Haskell2010
 
 executable Test1
   main-is:             Test1.hs
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -38,7 +38,7 @@ executable Test1
 
 executable Test2
   main-is:             Test2.hs
-  build-depends:       base, accelerate, criterion
+  build-depends:       base, accelerate, criterion, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -51,7 +51,7 @@ executable Test2
 
 executable Nbody
   main-is:             Nbody.hs
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -64,7 +64,7 @@ executable Nbody
 
 executable Matmult
   main-is:             Matmult.hs
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -77,7 +77,7 @@ executable Matmult
 
 executable Bs
   main-is:             Bs.hs
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2
@@ -90,7 +90,7 @@ executable Bs
 
 executable Mandel
   main-is:             Mandel.hs
-  build-depends:       base, accelerate, criterion, mwc-random
+  build-depends:       base, accelerate, criterion, mwc-random, mtl
   other-modules:       Fission1
   default-language:    Haskell2010
   ghc-options:         -Wall -O2

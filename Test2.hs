@@ -20,11 +20,11 @@ whileLoopF x = do
 whileLoopN x = A.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) (A.map (+ 1.0) (testArrN x))
 
 main = do
-  progf1 <- whileLoopF 10000
-  progf2 <- whileLoopF 15000
-  progf3 <- whileLoopF 20000
-  progf4 <- whileLoopF 25000
-  progf5 <- whileLoopF 30000
+  progf1 <- runTune2 $ whileLoopF 10000
+  progf2 <- runTune2 $ whileLoopF 15000
+  progf3 <- runTune2 $ whileLoopF 20000
+  progf4 <- runTune2 $ whileLoopF 25000
+  progf5 <- runTune2 $ whileLoopF 30000
   let progf1' = F.combine progf1
       progf2' = F.combine progf2
       progf3' = F.combine progf3
