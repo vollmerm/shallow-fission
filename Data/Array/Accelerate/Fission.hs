@@ -13,11 +13,10 @@ import Data.Typeable
 import Unsafe.Coerce
 import Prelude                                          as P hiding ( concat )
 
-import Data.Array.Accelerate                            ( (:.) (..), Array, Elt, Shape )
+import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Array.Sugar
 import qualified Data.Array.Accelerate                  as A
-import qualified Data.Array.Accelerate.Interpreter      as I
 
 
 type TuneM a = ReaderT [(String,Int)] IO a
@@ -56,25 +55,35 @@ combine' (MkAcc (Concat 0 as)) = foldr1 (A.++) as
 
 
 
-run1 :: (Slice ix, Shape ix, Elt a) =>
-        Acc (Array (ix :. Int) a) -> Array (ix :. Int) a
-run1 (MkAcc (Concat _ [])) = error "No arrays to concat"
-run1 (MkAcc (Concat 0 as)) = I.run $ foldr1 (A.++) as
+go1 :: (Slice sh, Shape sh, Elt a)
+    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    -> Acc (Array (sh :. Int) a)
+    -> Array (sh :. Int) a
+go1 exec (MkAcc (Concat dim arrs))
+  | null arrs   = error "Data.Array.Accelerate.Fusion.go1: nothing to do"
+  | dim /= 0    = error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
+  | otherwise   = exec $ foldr1 (A.++) arrs
 
-run0 :: (Shape ix, Elt a) =>
-        Acc (Array ix a) -> Array ix a
-run0 (MkAcc (Concat _ [])) = error "Nothing to do"
-run0 (MkAcc (Concat _ [a])) = I.run a
-run0 (MkAcc (Concat _ _as)) = error "Not implemented"
 
-run :: forall ix a. (Slice ix, Shape ix, Elt a) =>
-       Acc (Array ix a) -> Array ix a
-run (MkAcc (Concat _ [])) = error "No arrays to concat"
-run (MkAcc (Concat 0 as))
-    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = run0 (MkAcc (Concat 0 as))
-    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
-    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = run1 (MkAcc (Concat 0 as))
-    | otherwise = run0 (MkAcc (Concat 0 as))
+go0 :: (Shape sh, Elt a)
+    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    -> Acc (Array sh a)
+    -> Array sh a
+go0 exec (MkAcc (Concat _ arrs))
+  | null arrs   = error "Data.Array.Accelerate.Fusion.go0: nothing to do"
+  | [a] <- arrs = exec a
+  | otherwise   = error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
+
+
+run :: forall sh a. (Slice sh, Shape sh, Elt a)
+    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    -> Acc (Array sh a)
+    -> Array sh a
+run exec arrs
+  -- | Just REFL <- matchShape (undefined :: DIM0) (undefined :: sh) = go0 exec arrs
+  | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
+  | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
+  | otherwise                                                     = go0 exec arrs
 
 sfoldl :: forall sh a b. (Shape sh, Slice sh, Elt a, Elt b)
        => (A.Exp a -> A.Exp b -> A.Exp a)
