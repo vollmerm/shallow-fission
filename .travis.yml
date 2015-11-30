@@ -1,0 +1,57 @@
+# vim: nospell
+language: c
+sudo: false
+
+cache:
+  directories:
+    - $HOME/.stack
+
+matrix:
+  include:
+    - env: GHC=7.10 LLVM=3.5
+      compiler: "#GHC 7.10"
+      addons:
+        apt:
+          sources:
+            - hvr-ghc
+            - llvm-toolchain-precise-3.5
+            - ubuntu-toolchain-r-test
+          packages:
+            - libgmp-dev
+            - happy-1.19.5
+            - alex-3.1.4
+            - llvm-3.5-dev
+            - libedit-dev
+            - gcc-4.8
+            - g++-4.8
+
+before_install:
+  - unset CC
+  - export PATH=/opt/alex/3.1.4/bin:/opt/happy/1.19.5/bin:/usr/lib/llvm-$LLVM/bin:$PATH
+
+  # llvm-general-3.5 requires a newer version of gcc/g++ which understands c++11
+  - |
+      if [ ${LLVM} == 3.5 ]; then
+        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 20
+        update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 20
+      fi
+
+  # Fetch stack
+  - mkdir $HOME/bin
+  - export PATH=$HOME/bin:$PATH
+  - travis_retry curl -L "https://www.stackage.org/stack/linux-x86_64" | gunzip | tar -x
+  - mv stack-*/stack $HOME/bin
+  # - ln -s stack-${GHC}.yaml stack.yaml
+  - travis_retry stack setup --upgrade-cabal
+
+install:
+  - echo "$(stack exec ghc -- --version) [$(stack exec ghc -- --print-project-git-commit-id 2> /dev/null || echo '?')]"
+  - stack --version
+  - opt --version; true
+  - llc --version; true
+  - travis_retry stack build --only-dependencies -j2
+
+script:
+  - stack build
+  # - stack haddock
+
