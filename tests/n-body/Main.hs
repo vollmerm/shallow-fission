@@ -4,61 +4,70 @@
 module Main where
 
 import           Criterion.Main
-import           Data.Array.Accelerate             ((:.) (..), Array, Elt, Exp,
-                                                    IsFloating, IsNum, Scalar,
-                                                    Shape, Vector, Z (..),
-                                                    constant, lift, the, unlift)
-import qualified Data.Array.Accelerate             as A
-import qualified Data.Array.Accelerate.Array.Sugar as S
-import qualified Data.Array.Accelerate.Interpreter as I
-import           Fission1                          as F
-import           Prelude                           as P hiding (concat, map)
-import           Random
-import qualified System.Random.MWC                 as R
+import           Data.Array.Accelerate                   (Z(..), (:.) (..), DIM1, Elt, Exp, IsFloating, IsNum, Scalar, Vector, constant, lift, the, unlift)
+import qualified Data.Array.Accelerate                   as A
+import qualified Data.Array.Accelerate.Array.Sugar       as S
+import           Data.Array.Accelerate.Fission           as F
+import qualified Data.Array.Accelerate.Interpreter       as I
+import           Data.Array.Accelerate.System.Random.MWC
+
+import           Prelude                                 as P hiding (concat, map)
+-- import qualified System.Random.MWC                       as R
+
+
+
 -- step = P.curry I.run
 --        $ A.uncurry $ advanceBodies (calcAccels $ constant epsilon)
 
 --advance = advanceWorld step
 
-testCombined = do
-  comp <- test
-  return $ F.combine comp
+-- testCombined = do
+--   comp <- test
+--   return $ F.combine comp
 
-test = let epsilon     = 50
-           startSpeed  = 1
-           n           = 10
-           radius      = 500
-           size        = 100
-           mass        = 40
-           timeS       = A.use $ A.fromList Z [0.1]
-           masses      = randomArray (uniformR (1, mass)) (Z :. n)
-           positions   = randomArray (cloud (size,size) radius) (Z :. n)
-           bodies      = I.run
-                         $ A.map (setStartVelOfBody . constant $ startSpeed)
-                         $ A.zipWith setMassOfBody (A.use masses)
-                         $ A.map unitBody (A.use positions)
-       in advanceBodies (calcAccels (constant epsilon)) timeS (A.use bodies)
+-- test = let epsilon     = 50
+--            startSpeed  = 1
+--            n           = 10
+--            radius      = 500
+--            size        = 100
+--            mass        = 40
+--            timeS       = A.use $ A.fromList Z [0.1]
+--            masses      = randomArray (uniformR (1, mass)) (Z :. n)
+--            positions   = randomArray (cloud (size,size) radius) (Z :. n)
+--            bodies      = I.run
+--                          $ A.map (setStartVelOfBody . constant $ startSpeed)
+--                          $ A.zipWith setMassOfBody (A.use masses)
+--                          $ A.map unitBody (A.use positions)
+--        in
+--        advanceBodies (calcAccels (constant epsilon)) timeS (A.use bodies)
 
-main = let epsilon     = 50
-           startSpeed  = 1
-           n           = 1000
-           radius      = 500
-           size        = 1000
-           mass        = 40
-           timeS       = A.use $ A.fromList Z [0.1]
-           masses      = randomArray (uniformR (1, mass)) (Z :. n)
-           positions   = randomArray (cloud (size,size) radius) (Z :. n)
-           bodies      = I.run
-                         $ A.map (setStartVelOfBody . constant $ startSpeed)
-                         $ A.zipWith setMassOfBody (A.use masses)
-                         $ A.map unitBody (A.use positions)
-           step bodies = do
-             b <- runTune2 $ advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
-             return $ F.run b
-       in defaultMain [
-         bgroup "Nbody" [ bench ("n = " ++ show n) $ whnf step bodies
-                        ]
-         ]
+
+main :: IO ()
+main = do
+  let epsilon           = 50
+      startSpeed        = 1
+      n                 = 1000
+      radius            = 500
+      size              = 1000
+      mass              = 40
+      timeS             = A.use $ A.fromList Z [0.1]
+  --
+  masses        <- randomArray (uniformR (1, mass))       (Z :. n)
+  positions     <- randomArray (cloud (size,size) radius) (Z :. n)
+
+  let bodies            = I.run
+                        $ A.map (setStartVelOfBody . constant $ startSpeed)
+                        $ A.zipWith setMassOfBody (A.use masses)
+                        $ A.map unitBody (A.use positions)
+
+      step bodies = do
+        b <- runTune2 $ advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
+        return $ F.run I.run b
+  --
+  defaultMain
+    [ bgroup "nbody" [ bench ("n = " ++ show n) $ whnf step bodies
+                     ]
+    ]
 
 
 
@@ -348,11 +357,11 @@ advanceWorld advance timeStep world
 
 -- | Points distributed as a disc
 --
-disc :: Position -> R -> sh :~> Position
-disc (originX, originY, originZ) radiusMax _ix gen
-  = do  radius          <- R.uniformR (0,radiusMax) gen
-        theta           <- R.uniformR (0, pi)       gen
-        phi             <- R.uniformR (0, 2*pi)     gen
+disc :: Position -> R -> DIM1 :~> Position
+disc (originX, originY, originZ) radiusMax ix gen
+  = do  radius          <- uniformR (0,radiusMax) ix gen
+        theta           <- uniformR (0, pi)       ix gen
+        phi             <- uniformR (0, 2*pi)     ix gen
 
         return ( originX + radius * sin theta * cos phi
                , originY + radius * sin theta * sin phi
@@ -361,7 +370,7 @@ disc (originX, originY, originZ) radiusMax _ix gen
 
 -- | A point cloud with areas of high and low density
 --
-cloud :: Shape sh => (Int,Int) -> R -> sh :~> Position
+cloud :: (Int,Int) -> R -> DIM1 :~> Position
 cloud (fromIntegral -> sizeX, fromIntegral -> sizeY) radiusMax ix gen
   = let
         blob (sx,sy,sz) r
@@ -374,3 +383,4 @@ cloud (fromIntegral -> sizeX, fromIntegral -> sizeY) radiusMax ix gen
         2 -> blob (-0.05, 0.30,-0.30) 0.35 ix gen
         3 -> blob (-0.20,-0.12,-0.12) 0.45 ix gen
         _ -> blob ( 0.15,-0.10, 0.20) 0.75 ix gen
+
