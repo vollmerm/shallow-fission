@@ -1,6 +1,7 @@
 ## Build status
 
  * Jenkins: [![Build Status](http://tester-lin.soic.indiana.edu:8080/buildStatus/icon?job=accelerate-shallow-fission)](http://tester-lin.soic.indiana.edu:8080/job/accelerate-shallow-fission/)
+ * Travis: [![Build Status](https://travis-ci.org/vollmerm/shallow-fission.svg?branch=master)](https://travis-ci.org/vollmerm/shallow-fission)
 
 ## Haskell code
 
