@@ -1,12 +1,13 @@
 module Main where
-import           Control.Monad.Reader
+
 import           Criterion.Main
-import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
-                                                    Shape)
-import qualified Data.Array.Accelerate             as A
-import qualified Data.Array.Accelerate.Interpreter as C
-import           Fission1                          as F
 import           Prelude                           as P hiding (concat)
+
+import           Data.Array.Accelerate             ((:.) (..), Array, Elt, Shape)
+import           Data.Array.Accelerate.Fission     as F
+import qualified Data.Array.Accelerate             as A
+import qualified Data.Array.Accelerate.Interpreter as I
+
 arrSize = 50000
 bigNum  = A.constant $ 100000.0 :: A.Exp Double
 steps   = A.constant $ 5000
@@ -37,11 +38,11 @@ main = do
       tfea'' = F.combine tfea'
 
   defaultMain [
-      bgroup "Test1" [ bench "run fission map"  $ whnf C.run ta4''
-                     , bench "run fission map + while" $ whnf C.run tfea''
-                     , bench "run regular map" $ whnf C.run ra4
-                     , bench "run regular map + while" $ whnf C.run rfea
---                     , bench "runMulti fission map" $ whnf C.runMulti ta4''
---                     , bench "runMulti fission map + while" $ whnf C.runMulti tfea''
+      bgroup "Test1" [ bench "run fission map"  $ whnf I.run ta4''
+                     , bench "run fission map + while" $ whnf I.run tfea''
+                     , bench "run regular map" $ whnf I.run ra4
+                     , bench "run regular map + while" $ whnf I.run rfea
+--                     , bench "runMulti fission map" $ whnf I.runMulti ta4''
+--                     , bench "runMulti fission map + while" $ whnf I.runMulti tfea''
                      ]
      ]

@@ -19,23 +19,23 @@ library
         Data.Array.Accelerate.Fission
 
   build-depends:
-          base          >= 4.7
-        , accelerate    >= 2.0.0.0
-        , mtl           >= 2.0
+          base                  >= 4.7
+        , accelerate            >= 2.0
+        , mtl                   >= 2.0
 
 
--- executable Test1
---   main-is:             Test1.hs
---   build-depends:       base, accelerate, criterion, mwc-random, mtl
---   other-modules:       Fission1
---   default-language:    Haskell2010
---   ghc-options:         -Wall -O2
---                        -threaded
---                        -fpedantic-bottoms
---                        -fno-full-laziness
---                        -fno-excess-precision
---                        -eventlog
---                        -rtsopts
+executable Test1
+  default-language:     Haskell2010
+  main-is:              Test1.hs
+  hs-source-dirs:       tests/simple
+  ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+  --
+  build-depends:
+          base                  >= 4.7
+        , accelerate            >= 2.0
+        , shallow-fission       == 0.1.0.0
+        , criterion
+
 
 -- executable Test2
 --   main-is:             Test2.hs
