@@ -5,33 +5,36 @@
 
 module Main where
 
-import           Criterion.Main
-import           Data.Array.Accelerate             as A
-import           Data.Array.Accelerate.Interpreter as C
-import qualified Fission1                          as F
 import           Prelude                           as P
-import           Random
-import           System.Environment
 import           System.Environment
 
+import           Criterion.Main
+import           Data.Array.Accelerate                   as A
+import qualified Data.Array.Accelerate.Fission           as F
+import           Data.Array.Accelerate.System.Random.MWC
+
+import           Data.Array.Accelerate.Interpreter as I
+
+
+main :: IO ()
 main = do
   n' <- getEnv "N"
   b' <- getEnv "BACKEND"
   let n = read n' :: Int
-      r = options n
-  acc <- F.runTune2 $ blackscholes r
+  r   <- options n
+  -- acc <- F.runTune2 $ blackscholes r
   if b' == "multi"
   then undefined
-  -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf C.runMulti acc
+  -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf I.runMulti acc
   --                                          ]
   --                  ]
-  else defaultMain [ bgroup "Blackscholes" [ bench ("normal: n = " P.++ (show n)) $ whnf C.run (blackscholes' r)
+  else defaultMain [ bgroup "Blackscholes" [ bench ("normal: n = " P.++ (show n)) $ whnf I.run (blackscholes' r)
                                            ]
                    ]
 
 
-options :: Int -> Acc (Vector (Float,Float,Float))
-options n = A.use $ randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
+options :: Int -> IO (Acc (Vector (Float,Float,Float)))
+options n = A.use <$> randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
 
 blackscholes :: (Elt a, IsFloating a) => Acc (Vector (a, a, a)) -> F.TuneM (Acc (Vector (a, a)))
 blackscholes arr = do let arr' = F.mkacc arr
