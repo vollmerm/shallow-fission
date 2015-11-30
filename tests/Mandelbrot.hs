@@ -4,14 +4,17 @@
 
 module Main where
 
+import           Prelude                            as P
 import           Criterion.Main
+
 import           Data.Array.Accelerate              as A
 import           Data.Array.Accelerate.Data.Complex
-import           Data.Array.Accelerate.Interpreter  as C
-import qualified Fission1                           as F
-import           Prelude                            as P
+import qualified Data.Array.Accelerate.Fission      as F
+
+import           Data.Array.Accelerate.Interpreter  as I
 
 
+test :: F.TuneM (F.Acc (Array DIM2 Int32))
 test =
   let size      = 800
       limit     = 255
@@ -22,6 +25,7 @@ test =
         return arr
   in compute (size,limit)
 
+main :: IO ()
 main =
   let size      = 800
       limit     = 255
@@ -29,7 +33,7 @@ main =
       force arr = indexArray arr (Z:.0:.0) `seq` arr
       compute (size,limit) = do
         arr <- F.runTune2 $ mandelbrot size size limit $ A.use $ A.fromList Z [view]
-        return $ force $ C.run $ F.combine arr
+        return $ force $ I.run $ F.combine arr
   in defaultMain
          [bgroup "Mandel" [ bench ("size = " P.++ (show size)) $ whnf compute (size,limit)]]
 
