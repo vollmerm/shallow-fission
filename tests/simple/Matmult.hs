@@ -4,20 +4,22 @@
 module Main where
 
 import           Criterion.Main
-import           Data.Array.Accelerate             ((:.) (..), All (..), Array,
-                                                    Elt, Exp, IsFloating, IsNum,
-                                                    Scalar, Shape (..), Vector,
-                                                    Z (..), constant, lift, the,
-                                                    unlift)
+import           System.Environment
+import           Prelude                           as P hiding (concat, map)
+
+import           Data.Array.Accelerate             (Exp, IsNum, lift, unlift)
 import qualified Data.Array.Accelerate             as A
 import           Data.Array.Accelerate.Array.Sugar as S
-import qualified Data.Array.Accelerate.Interpreter as C
-import           Fission1                          as F
-import           Prelude                           as P hiding (concat, map)
-import           System.Environment
+import           Data.Array.Accelerate.Fission     as F
 
-arr1 = A.use $ A.fromList (Z :. 10 :. 10) [0.0..] :: A.Acc (Array A.DIM2 Float)
+import qualified Data.Array.Accelerate.Interpreter as I
 
+
+
+arr1 :: A.Acc (Array A.DIM2 Float)
+arr1 = A.use $ A.fromList (Z :. 10 :. 10) [0.0..]
+
+main :: IO ()
 main = do
   n' <- getEnv "N"
   b' <- getEnv "BACKEND"
@@ -29,11 +31,11 @@ main = do
   if b' == "multi"
   then undefined
   -- then defaultMain [
-  --           bgroup "MatMult" [ bench ("multi: n =" ++ (show n)) $ whnf C.runMulti arr1
+  --           bgroup "MatMult" [ bench ("multi: n =" ++ (show n)) $ whnf I.runMulti arr1
   --                      ]
   --          ]
   else defaultMain [
-            bgroup "MatMult" [ bench ("normal: n =" ++ (show n)) $ whnf C.run arr2
+            bgroup "MatMult" [ bench ("normal: n =" ++ (show n)) $ whnf I.run arr2
                        ]
            ]
 
@@ -105,6 +107,11 @@ matMul arr
 --       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
 -- test1  :: (IsNum e, Elt e) => A.Acc (Matrix e)
 --        -> TuneM (Acc (Matrix e))
+
+test1
+    :: (Elt a, IsNum a)
+    => A.Acc (Matrix a)
+    -> TuneM (A.Acc (Matrix a))
 test1 arr
     = do let arrRepl = A.replicate (lift $ Z :. All   :. colsB :. All) arr
              brrRepl = A.replicate (lift $ Z :. rowsA :. All   :. All) $ A.transpose arr
@@ -114,3 +121,4 @@ test1 arr
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
+
