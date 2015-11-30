@@ -3,19 +3,22 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
-module Fission1 where
-import           Control.Monad
-import           Control.Monad
-import           Control.Monad.Reader
-import           Data.Array.Accelerate                ((:.) (..), Array, Elt,
-                                                       Shape)
-import qualified Data.Array.Accelerate                as A
-import           Data.Array.Accelerate.Analysis.Match
-import           Data.Array.Accelerate.Array.Sugar
-import qualified Data.Array.Accelerate.Interpreter    as I
-import           Data.Typeable
-import           Prelude                              as P hiding (concat)
-import           Unsafe.Coerce
+
+module Data.Array.Accelerate.Fission where
+
+import Control.Monad
+import Control.Monad
+import Control.Monad.Reader
+import Data.Typeable
+import Unsafe.Coerce
+import Prelude                                          as P hiding ( concat )
+
+import Data.Array.Accelerate                            ( (:.) (..), Array, Elt, Shape )
+import Data.Array.Accelerate.Analysis.Match
+import Data.Array.Accelerate.Array.Sugar
+import qualified Data.Array.Accelerate                  as A
+import qualified Data.Array.Accelerate.Interpreter      as I
+
 
 type TuneM a = ReaderT [(String,Int)] IO a
 
@@ -376,22 +379,22 @@ matchSlice _ _
 
 
 
+-- TESTS
+-- -----
+--
+-- TODO: Move me somewhere appropriate
+--
 
+-- arr :: Acc (A.Vector Double)
+-- arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 
+-- a1 = Fission1.map (+ 1) arr
+-- a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
+-- a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
+-- a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
-
-
-
-arr :: Acc (A.Vector Double)
-arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
-
-a1 = Fission1.map (+ 1) arr
-a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
-a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
-a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
-
-a1' = do { a1' <- Fission1.map (+ 1) arr; return $ combine a1' }
-a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
-a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
-a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
+-- a1' = do { a1' <- Fission1.map (+ 1) arr; return $ combine a1' }
+-- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
+-- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
+-- a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
 
