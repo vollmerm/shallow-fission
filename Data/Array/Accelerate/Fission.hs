@@ -23,11 +23,13 @@ type TuneM a = ReaderT [(String,Int)] IO a
 
 runTune2 f = runReaderT f [("split",2)]
 
-newtype Acc a = MkAcc (Rep a)
-  deriving Show
+newtype Acc a = MkAcc (TuneM (Rep a))
+--  deriving Show
 
+-- | The language of multi-device computations.
 data Rep a = Concat DimId [A.Acc a]
-
+           -- Split?
+           -- device selection?  what else
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
@@ -117,12 +119,13 @@ matchSlice _ _
   | otherwise
   = Nothing
 
-mkacc a = MkAcc $ Concat 0 [a]
+mkacc a = MkAcc $ return $ Concat 0 [a]
 
 --------------------------------------------------------------------------------
 -- RUNNING
 --------------------------------------------------------------------------------
 
+{-
 go1 :: (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array (sh :. Int) a)
@@ -152,7 +155,7 @@ run exec arrs
   | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
   | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
   | otherwise                                                     = go0 exec arrs
-
+-}
 
 --------------------------------------------------------------------------------
 -- Wrappers for Core Accelerate operations
@@ -160,33 +163,37 @@ run exec arrs
 
 map1n :: (Slice ix, Shape ix, Elt a, Elt b) =>
          (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
-         TuneM (Acc (Array (ix :. Int) b))
-map1n _ (MkAcc (Concat _ [])) _n = error "Nothing to do."
-map1n f (MkAcc (Concat _ [arr])) n =
-    do dim     <- askTuner [0..n-1]
-       (a1,a2) <- split dim arr
-       let m1 = A.map f a1
-           m2 = A.map f a2
-       return $ MkAcc $ Concat dim [m1,m2]
-map1n f (MkAcc (Concat d as)) _n =
-    let as' = P.map (\a -> A.map f a) as
-    in return $ MkAcc (Concat d as')
+         (Acc (Array (ix :. Int) b))
+map1n f (MkAcc m) n = MkAcc $ 
+    do (Concat d ls) <- m
+       case ls of 
+         [] -> error "Nothing to do."
+         [arr] -> do 
+           dim     <- askTuner [0..n-1]
+           (a1,a2) <- split dim arr
+           let m1 = A.map f a1
+               m2 = A.map f a2
+           return $ Concat dim [m1,m2]
+         as -> let as' = P.map (\a -> A.map f a) as
+               in return $ Concat d as'
 
 map0 :: (Shape ix, Elt a, Elt b) =>
-        (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
-map0 f (MkAcc (Concat d as)) =
-    let as' = P.map (\a -> A.map f a) as
-    in return $ MkAcc (Concat d as')
+        (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> (Acc (Array ix b))
+map0 f (MkAcc m) = MkAcc $ 
+  do Concat d as <- m     
+     let as' = P.map (\a -> A.map f a) as
+     return $ Concat d as'
 
 map
   :: forall ix a b. (Shape ix, Elt a, Elt b) =>
-     (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> TuneM (Acc (Array ix b))
+     (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> (Acc (Array ix b))
 map f arr
     | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = map0 f arr
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1n f arr 1
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1n f arr 2
     | otherwise = map0 f arr
 
+{-
 
 -- Doesn't work
 -- replicaten :: (Slice slix, Elt e)
@@ -375,14 +382,19 @@ zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m21,m22])) =
 zipWith _ _ _ = error "Not implemented"
 
 
+-}
+
 combine
   :: (Slice sh, Shape sh, Elt e) =>
-     Acc (Array (sh :. Int) e) -> A.Acc (Array (sh :. Int) e)
-combine (MkAcc (Concat 0 [a])) = a
-combine (MkAcc (Concat 0 as)) = foldr1 (A.++) $ P.map A.compute as
+     Acc (Array (sh :. Int) e) -> TuneM (A.Acc (Array (sh :. Int) e))
+combine (MkAcc m) =  
+  do res <- m
+     return $ case res of 
+               (Concat 0 [a]) -> a
+               (Concat 0 as)  -> foldr1 (A.++) $ P.map A.compute as
 
-combine0 (MkAcc (Concat 0 [a])) = a
-
+-- combine0 (MkAcc (Concat 0 [a])) = a
+{-
 combine'
   :: (Slice sh, Shape sh, Elt e) =>
      Acc (Array (sh :. Int) e) -> A.Acc (Array (sh :. Int) e)
@@ -396,7 +408,7 @@ sfoldl :: forall sh a b. (Shape sh, Slice sh, Elt a, Elt b)
        -> Acc (Array (sh :. Int) b)
        -> A.Exp a
 sfoldl = undefined
-
+-}
 
 -- TESTS
 -- -----
@@ -404,15 +416,16 @@ sfoldl = undefined
 -- TODO: Move me somewhere appropriate
 --
 
--- arr :: Acc (A.Vector Double)
--- arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
+arr :: Acc (A.Vector Double)
+arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 
 -- a1 = Fission1.map (+ 1) arr
 -- a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
 -- a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 -- a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
--- a1' = do { a1' <- Fission1.map (+ 1) arr; return $ combine a1' }
+a1' = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
 -- a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
+
