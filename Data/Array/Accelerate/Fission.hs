@@ -6,23 +6,24 @@
 
 module Data.Array.Accelerate.Fission where
 
-import Control.Monad
+-- import Control.Monad
 import Control.Monad
 import Control.Monad.Reader
 import Data.Typeable
-import Unsafe.Coerce
+-- import Unsafe.Coerce
 import Prelude                                          as P hiding ( concat )
 
-import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
+-- import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
 import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.Array.Sugar
+import Data.Array.Accelerate.Array.Sugar hiding (dim)
 import qualified Data.Array.Accelerate                  as A
 
-import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
+-- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
 
 
 type TuneM a = ReaderT [(String,Int)] IO a
 
+runTune2 :: Num t => ReaderT [(String, t)] m a -> m a
 runTune2 f = runReaderT f [("split",2)]
 
 type NumSplits = Int
@@ -62,7 +63,7 @@ split _dimid arr = return (arr1, arr2)
                          h = A.indexHead i
                      in A.lift $ t :. (h + chunk)
           arr1 = A.generate (A.lift arr1Sh) (\sh -> arr A.! sh)
-          arr2 = A.generate (A.lift arr2Sh) (\sh -> arr A.! (adjust sh))
+          arr2 = A.generate (A.lift arr2Sh) (\sh -> arr A.! adjust sh)
 
     --   return (splitArray (A.constant 0), splitArray (A.constant 1))
     -- where splitArray i =
@@ -125,6 +126,7 @@ matchSlice _ _
   = Nothing
 
 -- FIXME: This should probably introduce a split node.
+mkacc :: A.Acc a -> Acc a
 mkacc a = MkAcc $ \_ -> return $ Concat 0 [a]
 
 --------------------------------------------------------------------------------
@@ -167,9 +169,11 @@ run exec arrs
 -- Wrappers for Core Accelerate operations
 --------------------------------------------------------------------------------
 
-map1n :: (Slice ix, Shape ix, Elt a, Elt b) =>
-         (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
-         (Acc (Array (ix :. Int) b))
+map1n :: (Slice ix, Shape ix, Elt a, Elt b)
+      => (A.Exp a -> A.Exp b)
+      -> Acc (Array (ix :. Int) a)
+      -> Int
+      -> Acc (Array (ix :. Int) b)
 map1n f (MkAcc m) n = MkAcc $ \numSplits ->
     do (Concat d ls) <- m numSplits
        case ls of
@@ -182,20 +186,20 @@ map1n f (MkAcc m) n = MkAcc $ \numSplits ->
            let m1 = A.map f a1
                m2 = A.map f a2
            return $ Concat dim [m1,m2]
-         as -> let as' = P.map (\a -> A.map f a) as
+         as -> let as' = P.map (A.map f) as
                in return $ Concat d as'
 
 map0 :: (Shape ix, Elt a, Elt b) =>
-        (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> (Acc (Array ix b))
+        (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> Acc (Array ix b)
 map0 f (MkAcc m) = MkAcc $ \numSplits ->
   do Concat d as <- m numSplits
      -- Here we don't change the chunking of what comes back:
-     let as' = P.map (\a -> A.map f a) as
+     let as' = P.map (A.map f) as
      return $ Concat d as'
 
 map
   :: forall ix a b. (Shape ix, Elt a, Elt b) =>
-     (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> (Acc (Array ix b))
+     (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> Acc (Array ix b)
 map f arr
     | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = map0 f arr
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = map1n f arr 1
@@ -376,7 +380,7 @@ zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
           -> Acc (Array (sh :. Int) c)
 zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
   Concat d1 x <- f1 numSplits
-  Concat d2 y <- f2 numSplits
+  Concat _d2 y <- f2 numSplits
   case (x,y) of
     ([], _) -> error "Nothing to do"
     (_,[])  -> error "Nothing to do"
@@ -400,7 +404,7 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
              m2' = A.zipWith f m12 m22
          return $ Concat d1 [m1',m2']
 
-    (([m11,m12]), ([m21,m22])) ->
+    ([m11,m12], [m21,m22]) ->
       do let m1' = A.zipWith f m11 m21
              m2' = A.zipWith f m12 m22
          return $ Concat d1 [m1',m2']
@@ -417,6 +421,7 @@ combine (MkAcc m) =
      return $ case res of
                (Concat 0 [a]) -> a
                (Concat 0 as)  -> foldr1 (A.++) $ P.map A.compute as
+               (Concat _ _) -> error "combine: unfinished cases"
 
 -- combine0 (MkAcc (Concat 0 [a])) = a
 {-
@@ -441,18 +446,20 @@ sfoldl = undefined
 -- TODO: Move me somewhere appropriate
 --
 
-arr :: Acc (A.Vector Double)
-arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
+arr0 :: Acc (A.Vector Double)
+arr0 = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 
 -- a1 = Fission1.map (+ 1) arr
 -- a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
 -- a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 -- a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
-a1 = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr
+ac1 :: IO (A.Acc (Array (DIM0 :. Int) Double))
+ac1 = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr0
 
-a2 = runTune2 $ let a = Data.Array.Accelerate.Fission.map (+ 1) arr
-                in combine $ Data.Array.Accelerate.Fission.zipWith (+) a a
+ac2 :: IO (A.Acc (Array (DIM0 :. Int) Double))
+ac2 = runTune2 $ let a = Data.Array.Accelerate.Fission.map (+ 1) arr0
+                 in combine $ Data.Array.Accelerate.Fission.zipWith (+) a a
 
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
