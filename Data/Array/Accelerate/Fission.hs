@@ -206,8 +206,6 @@ map f arr
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = map1n f arr 2
     | otherwise = map0 f arr
 
-{-
-
 -- Doesn't work
 -- replicaten :: (Slice slix, Elt e)
 --            => A.Exp slix
@@ -233,26 +231,44 @@ map f arr
 --     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = replicaten e arr 2
 --     | otherwise = error "still don't care"
 
--- replicate :: (Slice ix, Elt e) => A.Exp ix -> Acc (Array (A.SliceShape ix) e)
---           -> TuneM (Acc (Array (A.FullShape ix) e))
-replicate e (MkAcc (Concat _ [])) = error "Nothing to do"
-replicate e (MkAcc (Concat d [arr])) =
-    -- generate (A.shape arr') (\s -> arr' A.! s)
-    -- where arr' = A.replicate e arr
-    return $ MkAcc $ Concat 0 [arr1,arr2]
-        where arr'   = A.replicate e arr
-              shap   = A.shape arr'
-              arrHd  = A.indexHead shap
-              arrTl  = A.indexTail shap
-              (chunk, leftover) = arrHd `quotRem` 2
-              arr1Sh = arrTl :. chunk
-              arr2Sh = arrTl :. (chunk + leftover)
-              adjust i = let t = A.indexTail i
-                             h = A.indexHead i
-                         in A.lift $ t :. (h + chunk)
-              arr1   = A.generate (A.lift arr1Sh) (\sh -> arr' A.! sh)
-              arr2   = A.generate (A.lift arr2Sh) (\sh -> arr' A.! (adjust sh))
-replicate _ _ = error "don't care yet"
+
+-- Here's the type we WANT, to match `A.replicate`
+-- replicate :: (Slice slix, Elt e) =>
+--               A.Exp slix
+--            -> Acc (Array (SliceShape slix) e)
+--            -> Acc (Array (FullShape slix) e)
+
+-- Here's the current type:
+replicate :: (A.IsIntegral a, Slice slix, Slice sh, Shape (sh :. a), Elt e, Elt a,
+             FullShape slix ~ (sh :. a))
+          => A.Exp slix
+          -> Acc (Array (SliceShape slix) e)
+          -> Acc (Array (sh :. a) e)
+replicate e (MkAcc fn) = MkAcc $ \numSplits ->
+  -- TODO: Need a new policy here for how to split.
+  do res <- fn numSplits
+     case res of
+       (Concat _ []) -> error "Nothing to do"
+       (Concat _d [arr]) ->
+         -- generate (A.shape arr') (\s -> arr' A.! s)
+         -- where arr' = A.replicate e arr
+         let arr'   = A.replicate e arr
+             shap   = A.shape arr'
+             arrHd  = A.indexHead shap
+             arrTl  = A.indexTail shap
+             (chunk, leftover) = arrHd `quotRem` 2
+             arr1Sh = arrTl :. chunk
+             arr2Sh = arrTl :. (chunk + leftover)
+             adjust i = let t = A.indexTail i
+                            h = A.indexHead i
+                        in A.lift $ t :. (h + chunk)
+             arr1   = A.generate (A.lift arr1Sh) (\sh -> arr' A.! sh)
+             arr2   = A.generate (A.lift arr2Sh) (\sh -> arr' A.! (adjust sh))
+         in return $ Concat 0 [arr1,arr2]
+
+       _ -> error "replicate: unhandled cases"
+
+{-
 
 transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
 
