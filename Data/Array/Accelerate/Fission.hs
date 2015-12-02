@@ -23,7 +23,10 @@ type TuneM a = ReaderT [(String,Int)] IO a
 
 runTune2 f = runReaderT f [("split",2)]
 
-newtype Acc a = MkAcc (TuneM (Rep a))
+type NumSplits = Int
+
+-- TODO:
+newtype Acc a = MkAcc (NumSplits -> TuneM (Rep a))
 --  deriving Show
 
 -- | The language of multi-device computations.
@@ -119,7 +122,8 @@ matchSlice _ _
   | otherwise
   = Nothing
 
-mkacc a = MkAcc $ return $ Concat 0 [a]
+-- FIXME: This should probably introduce a split node.
+mkacc a = MkAcc $ \_ -> return $ Concat 0 [a]
 
 --------------------------------------------------------------------------------
 -- RUNNING
@@ -164,13 +168,15 @@ run exec arrs
 map1n :: (Slice ix, Shape ix, Elt a, Elt b) =>
          (A.Exp a -> A.Exp b) -> Acc (Array (ix :. Int) a) -> Int ->
          (Acc (Array (ix :. Int) b))
-map1n f (MkAcc m) n = MkAcc $ 
-    do (Concat d ls) <- m
-       case ls of 
+map1n f (MkAcc m) n = MkAcc $ \numSplits ->
+    do (Concat d ls) <- m numSplits
+       case ls of
          [] -> error "Nothing to do."
-         [arr] -> do 
+         -- FIXME: Here we should probably introduce a split of the specific arity,
+         -- but we can't do that yet so we only do two-way:
+         [arr] | numSplits > 1 -> do
            dim     <- askTuner [0..n-1]
-           (a1,a2) <- split dim arr
+           (a1,a2) <- split dim arr -- TODO: multi-way split.
            let m1 = A.map f a1
                m2 = A.map f a2
            return $ Concat dim [m1,m2]
@@ -179,8 +185,9 @@ map1n f (MkAcc m) n = MkAcc $
 
 map0 :: (Shape ix, Elt a, Elt b) =>
         (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> (Acc (Array ix b))
-map0 f (MkAcc m) = MkAcc $ 
-  do Concat d as <- m     
+map0 f (MkAcc m) = MkAcc $ \numSplits ->
+  do Concat d as <- m numSplits
+     -- Here we don't change the chunking of what comes back:
      let as' = P.map (\a -> A.map f a) as
      return $ Concat d as'
 
@@ -387,9 +394,9 @@ zipWith _ _ _ = error "Not implemented"
 combine
   :: (Slice sh, Shape sh, Elt e) =>
      Acc (Array (sh :. Int) e) -> TuneM (A.Acc (Array (sh :. Int) e))
-combine (MkAcc m) =  
-  do res <- m
-     return $ case res of 
+combine (MkAcc m) =
+  do res <- m 2
+     return $ case res of
                (Concat 0 [a]) -> a
                (Concat 0 as)  -> foldr1 (A.++) $ P.map A.compute as
 
@@ -428,4 +435,3 @@ a1' = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
 -- a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
-
