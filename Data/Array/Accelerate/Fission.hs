@@ -18,6 +18,8 @@ import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Array.Sugar
 import qualified Data.Array.Accelerate                  as A
 
+import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
+
 
 type TuneM a = ReaderT [(String,Int)] IO a
 
@@ -365,31 +367,47 @@ fold1 f arr
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = fold1n f arr 3
     | otherwise = fold1n f arr 0
 
-zipWith f (MkAcc (Concat _ [])) _ = error "Nothing to do"
-zipWith f _ (MkAcc (Concat _ [])) = error "Nothing to do"
-zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m2])) =
-    do dim <- askTuner [0..10]
-       (m11,m12) <- split dim m1
-       (m21,m22) <- split dim m2
-       let m1' = A.zipWith f m11 m21
-           m2' = A.zipWith f m12 m22
-       return $ MkAcc $ Concat d1 [m1',m2']
-zipWith f (MkAcc (Concat d1 [m11,m12])) (MkAcc (Concat d2 [m21,m22])) =
-    do let m1' = A.zipWith f m11 m21
-           m2' = A.zipWith f m12 m22
-       return $ MkAcc $ Concat d1 [m1',m2']
-zipWith f (MkAcc (Concat d1 [m1])) (MkAcc (Concat d2 [m21,m22])) =
-  -- do let m2 = (A.compute m21) A.++ (A.compute m22)
-  --    return $ MkAcc $ Concat 0 [(A.zipWith f m1 m2)]
-  do dim <- askTuner [0]
-     (m11,m12) <- split dim m1
-     let m1' = A.zipWith f m11 m21
-         m2' = A.zipWith f m12 m22
-     return $ MkAcc $ Concat d1 [m1',m2']
-zipWith _ _ _ = error "Not implemented"
-
-
 -}
+
+zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
+          (A.Exp a -> A.Exp b -> A.Exp c)
+          -> Acc (Array (sh :. Int) a)
+          -> Acc (Array (sh :. Int) b)
+          -> Acc (Array (sh :. Int) c)
+zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
+  Concat d1 x <- f1 numSplits
+  Concat d2 y <- f2 numSplits
+  case (x,y) of
+    ([], _) -> error "Nothing to do"
+    (_,[])  -> error "Nothing to do"
+    ([m1], [m2]) | numSplits > 1 ->
+      do dim <- askTuner [0..10]
+         (m11,m12) <- split dim m1
+         (m21,m22) <- split dim m2
+         let m1' = A.zipWith f m11 m21
+             m2' = A.zipWith f m12 m22
+         return $ Concat d1 [m1',m2']
+
+    ([m1], [m2]) ->
+      return $ Concat d1 [A.zipWith f m1 m2]
+
+    ([m1], [m21,m22])  ->
+      -- do let m2 = (A.compute m21) A.++ (A.compute m22)
+      --    return $ MkAcc $ Concat 0 [(A.zipWith f m1 m2)]
+      do dim <- askTuner [0]
+         (m11,m12) <- split dim m1
+         let m1' = A.zipWith f m11 m21
+             m2' = A.zipWith f m12 m22
+         return $ Concat d1 [m1',m2']
+
+    (([m11,m12]), ([m21,m22])) ->
+      do let m1' = A.zipWith f m11 m21
+             m2' = A.zipWith f m12 m22
+         return $ Concat d1 [m1',m2']
+
+    _ -> error "Not implemented"
+
+
 
 combine
   :: (Slice sh, Shape sh, Elt e) =>
@@ -431,7 +449,11 @@ arr = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
 -- a3 = do { a2' <- a2; Fission1.fold1 (+) a2' }
 -- a4 = do { a1' <- a1; a2' <- a2; Fission1.zipWith (+) a1' a2' }
 
-a1' = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr
+a1 = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr
+
+a2 = runTune2 $ let a = Data.Array.Accelerate.Fission.map (+ 1) arr
+                in combine $ Data.Array.Accelerate.Fission.zipWith (+) a a
+
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
 -- a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
