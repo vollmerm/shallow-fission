@@ -38,7 +38,7 @@ options n = A.use <$> randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
 
 blackscholes :: (Elt a, IsFloating a)
              => Acc (Vector (a, a, a)) -> F.TuneM (Acc (Vector (a, a)))
-blackscholes arr = let arr' = F.mkacc arr
+blackscholes arr = let arr' = F.liftAcc arr
                        r    = F.map go arr'
                    in F.combine r
   where

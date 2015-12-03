@@ -16,12 +16,10 @@ import           Control.Monad.Reader
 import           Data.Typeable
 -- import Unsafe.Coerce
 import           Prelude as P hiding ( concat )
-
 -- import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
 import           Data.Array.Accelerate.Analysis.Match
-import           Data.Array.Accelerate.Array.Sugar hiding (dim)
+import           Data.Array.Accelerate.Array.Sugar hiding (dim, Split)
 import qualified Data.Array.Accelerate as A
-
 -- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
 
 
@@ -30,23 +28,70 @@ type TuneM a = ReaderT [(String,Int)] IO a
 runTune2 :: TuneM a -> IO a
 runTune2 f = runReaderT f [("split",2)]
 
-type NumSplits = Int
+--------------------------------------------------------------------------------
+-- Shallow Language of fissionable computations
+--------------------------------------------------------------------------------
 
--- TODO:
 newtype Acc a = MkAcc (NumSplits -> TuneM (Rep a))
 --  deriving Show
 
+type NumSplits = Int
+
 -- | The language of multi-device computations.
+--
+-- The chunked nature of a computation does not affect its type.
+-- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
+--
+-- Concatenation alway flattens any structure and goes back to a single chunk.
 data Rep a = Concat DimId [A.Acc a]
-           -- Split?
+           | Split  DimId (A.Acc a)
            -- device selection?  what else
+
+type DimId = Int
 
 instance A.Arrays a => Show (Rep a) where
   show (Concat d ls) =
-      "Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
-                         unlines [ show x | x <- ls ]
+      "(Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
+                         unlines [ show x | x <- ls ]++")"
+  show (Split d a) =
+     "(Split along dim "++show d++ " of "++ show a++")"
 
-type DimId = Int
+----------------------------------------
+-- Smart constructors:
+----------------------------------------
+
+mkConcat :: DimId -> Rep a -> Rep a -> (Rep a)
+mkConcat d3 x y =
+ case (x,y) of
+   ((Concat d1 ls1),(Concat d2 ls2))
+     | d1 == d2 && d1 == d3  -> Concat d3 (ls1 ++ ls2)
+
+   -- In the remaining cases, Splits get eaten by concats:
+   ((Split _ a),(Split _ b)) -> Concat d3 [a,b]
+   ((Concat d1 as),(Split _ b))
+     | d1 == d3 -> Concat d3 (as ++ [b])
+   ((Split _ a),(Concat d1 bs))
+     | d1 == d3 -> Concat d3 (a : bs)
+
+   -- TODO: if forced into a corner we can just go ahead and create a
+   -- manifest concat node with an `A.generate`:
+   _ -> error "mkConcat: Brain explodes for now..."
+
+mkSplit :: DimId -> Rep a -> Rep a
+mkSplit d1 rep =
+  case rep of
+    -- This is potentially a tuning decision.  Who gets precedence?
+    --
+    -- If it's already split apart, but not in the dimension we want,
+    -- do we really want to create a concattenation kernel to
+    -- (potentially) manifest the data?
+    (Concat d2 _ls)
+      | d1 == d2  -> rep
+      | otherwise -> error "mkSplit/unfinished: use generate to reorganize the concat along a different dim"
+    -- Well, we don't have to undo a split that was deferred:
+    (Split _ ar)  -> Split d1 ar
+
+----------------------------------------
 
 
 --------------------------------------------------------------------------------
@@ -83,10 +128,6 @@ split _dimid arr = return (arr1, arr2)
     --               f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
     --           in A.backpermute bsh f arr
 
-concat :: DimId -> Rep a -> Rep a -> TuneM (Rep a)
-concat d3 (Concat d1 ls1) (Concat d2 ls2)
- | d1 == d2 && d1 == d3 = return $ Concat d3 (ls1 ++ ls2)
- | otherwise = error "Brain explodes for now..."
 
 askTuner :: [Int] -> TuneM Int
 askTuner ls = return $ head ls
@@ -130,8 +171,8 @@ matchSlice _ _
   = Nothing
 
 -- FIXME: This should probably introduce a split node.
-mkacc :: A.Acc a -> Acc a
-mkacc a = MkAcc $ \_ -> return $ Concat 0 [a]
+liftAcc :: A.Acc a -> Acc a
+liftAcc a = MkAcc $ \_ -> return $ Concat 0 [a]
 
 --------------------------------------------------------------------------------
 -- RUNNING
@@ -502,7 +543,7 @@ sfoldl = undefined
 --
 
 arr0 :: Acc (A.Vector Double)
-arr0 = mkacc $ A.use (A.fromList (A.Z :. 10) [0..])
+arr0 = liftAcc $ A.use (A.fromList (A.Z :. 10) [0..])
 
 -- a1 = Fission1.map (+ 1) arr
 -- a2 = do { a1' <- a1; Fission1.map (* 2) a1'}
