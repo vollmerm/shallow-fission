@@ -23,7 +23,7 @@ import qualified Data.Array.Accelerate                  as A
 
 type TuneM a = ReaderT [(String,Int)] IO a
 
-runTune2 :: Num t => ReaderT [(String, t)] m a -> m a
+runTune2 :: TuneM a -> IO a
 runTune2 f = runReaderT f [("split",2)]
 
 type NumSplits = Int
@@ -268,19 +268,15 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
 
        _ -> error "replicate: unhandled cases"
 
-{-
-
-transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
-
 
 generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
-         -> TuneM (Acc (Array ix a))
-generate e f = do
-  arr     <- return $ A.generate e f
-  return $ MkAcc $ Concat 0 [arr]
+         -> (Acc (Array ix a))
+-- Here
+generate e f = MkAcc $ \_numSplits ->
+  return $ Concat 0 [A.generate e f]
 
 generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
-              -> TuneM (Acc (Array ix a))
+              -> (Acc (Array ix a))
 generateSplit sh f
     | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate sh f
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
@@ -288,8 +284,8 @@ generateSplit sh f
     | otherwise = generate sh f
 
 generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
-          -> TuneM (Acc (Array (ix A.:. Int) a))
-generate1 sh f = do
+          -> (Acc (Array (ix A.:. Int) a))
+generate1 sh f = MkAcc $ \_numSplits -> do
     let arrHd = A.indexHead sh
         arrTl = A.indexTail sh
     (ln1, ln2) <- askTunerSplit arrHd
@@ -300,8 +296,11 @@ generate1 sh f = do
                      in A.lift $ t :. (h + ln1)
           arr1 = A.generate (A.lift arr1Sh) f
           arr2 = A.generate (A.lift arr2Sh) $ f . adjust
-    return $ MkAcc $ Concat 0 [arr1,arr2]
+    return $ Concat 0 [arr1,arr2]
 
+askTunerSplit ::
+  (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
+  A.Exp a -> m (A.Exp a, A.Exp a)
 askTunerSplit hd = do
   params <- ask
   let splitP = case lookup "split" params of
@@ -313,6 +312,10 @@ askTunerSplit hd = do
            else if splitP < -1
                 then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
                 else error "Can't split like that"
+
+{-
+
+transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
 
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
@@ -429,9 +432,9 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
 
 
 
-combine
-  :: (Slice sh, Shape sh, Elt e) =>
-     Acc (Array (sh :. Int) e) -> TuneM (A.Acc (Array (sh :. Int) e))
+combine :: (Slice sh, Shape sh, Elt e) =>
+           Acc (Array (sh :. Int) e)
+        -> TuneM (A.Acc (Array (sh :. Int) e))
 combine (MkAcc m) =
   do res <- m 2
      return $ case res of

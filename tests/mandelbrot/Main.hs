@@ -4,25 +4,30 @@
 
 module Main where
 
-import           Prelude                            as P
+import           Control.Exception (evaluate)
 import           Criterion.Main
-
-import           Data.Array.Accelerate              as A
+import           Data.Array.Accelerate
+                  (Array,DIM2,lift,lift1,Z(Z),(:.)(..),the,indexArray,
+                   unlift,Exp,unindex2,IsFloating,constant,(&&*),Scalar,Acc,Elt)
+import qualified Data.Array.Accelerate as A
 import           Data.Array.Accelerate.Data.Complex
-import qualified Data.Array.Accelerate.Fission      as F
+import qualified Data.Array.Accelerate.Fission as F
+import           Data.Int
+import           Data.Word
+import           Prelude as P
 
-import           Data.Array.Accelerate.Interpreter  as I
+import           Data.Array.Accelerate.Interpreter as I
 
 
-test :: F.TuneM (F.Acc (Array DIM2 Int32))
+test :: (F.Acc (Array DIM2 Int32))
 test =
   let size      = 800
       limit     = 255
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
-      force arr = indexArray arr (Z:.0:.0) `seq` arr
-      compute (size,limit) = do
-        arr <- mandelbrot size size limit $ A.use $ A.fromList Z [view]
-        return arr
+      -- force arr = indexArray arr (Z:.0:.0) `seq` arr
+      compute (sz,lmt) =
+        mandelbrot sz sz lmt $ A.use $ A.fromList Z [view]
+
   in compute (size,limit)
 
 main :: IO ()
@@ -31,11 +36,13 @@ main =
       limit     = 255
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
       force arr = indexArray arr (Z:.0:.0) `seq` arr
-      compute (size,limit) = do
-        arr <- F.runTune2 $ mandelbrot size size limit $ A.use $ A.fromList Z [view]
-        return $ force $ I.run $ F.combine arr
+      compute (sz,lmt) =
+        do tuned <- F.runTune2 $ F.combine $
+                    mandelbrot sz sz lmt $ A.use $ A.fromList Z [view]
+           evaluate $ force $ I.run tuned
   in defaultMain
-         [bgroup "Mandel" [ bench ("size = " P.++ (show size)) $ whnf compute (size,limit)]]
+         [bgroup "Mandel" [ bench ("size = " P.++ (show size)) $
+                            whnfIO $ compute (size,limit)]]
 
 
 
@@ -67,7 +74,7 @@ mandelbrot
     -> Int
     -> Int
     -> Acc (Scalar (View a))
-    -> F.TuneM (F.Acc (Array DIM2 Int32))
+    -> (F.Acc (Array DIM2 Int32))
 mandelbrot screenX screenY depth view =
   F.generateSplit (constant (Z:.screenY:.screenX))
        (\ix -> let c = initial ix
@@ -100,4 +107,3 @@ mandelbrot screenX screenY depth view =
             in  r*r + i*i
 
     lIMIT = P.fromIntegral depth
-
