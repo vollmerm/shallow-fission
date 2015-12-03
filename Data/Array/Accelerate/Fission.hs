@@ -3,21 +3,24 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Data.Array.Accelerate.Fission where
 
 -- import Control.Monad
-import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad
-import Control.Monad.Reader
-import Data.Typeable
+import           Data.List as L
+import           Control.Exception (assert)
+import           System.IO.Unsafe (unsafePerformIO)
+import           Control.Monad
+import           Control.Monad.Reader
+import           Data.Typeable
 -- import Unsafe.Coerce
-import Prelude                                          as P hiding ( concat )
+import           Prelude as P hiding ( concat )
 
 -- import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
-import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.Array.Sugar hiding (dim)
-import qualified Data.Array.Accelerate                  as A
+import           Data.Array.Accelerate.Analysis.Match
+import           Data.Array.Accelerate.Array.Sugar hiding (dim)
+import qualified Data.Array.Accelerate as A
 
 -- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
 
@@ -269,40 +272,57 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
 
        _ -> error "replicate: unhandled cases"
 
-
-generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
-         -> (Acc (Array ix a))
--- Here is where we should see the difference with the "demand driven"
--- approach.  Rather than generating a split-of-generate, we directly
--- create the generate in the right granularity.  The alternative
--- would be to include Generate expliticly in Rep, in which case
--- optimizing `(Split . Generate)` would be trivial.
-generate e f = MkAcc $ \_numSplits ->
-  return $ Concat 0 [A.generate e f]
+generate0 :: (Elt a) => A.Exp Z -> (A.Exp Z -> A.Exp a) -> Acc (Array Z a)
+-- Cannot meaningfully split zero dim:
+generate0 e f = MkAcc $ \_numSplits -> return $
+  Concat 0 [ A.generate e f ]
 
 generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
               -> (Acc (Array ix a))
 generateSplit sh f
-    | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate sh f
+    | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate0 sh f
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f
-    | otherwise = generate sh f
+    | otherwise = error "generate: haven't solved the N-dimensional general case."
 
 generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.:. Int) -> A.Exp a)
           -> (Acc (Array (ix A.:. Int) a))
-generate1 sh f = MkAcc $ \_numSplits -> do
-    let arrHd = A.indexHead sh
-        arrTl = A.indexTail sh
-    (ln1, ln2) <- askTunerSplit arrHd
-    let   arr1Sh = arrTl :. ln1
-          arr2Sh = arrTl :. ln2
-          adjust i = let t = A.indexTail i
-                         h = A.indexHead i
-                     in A.lift $ t :. (h + ln1)
-          arr1 = A.generate (A.lift arr1Sh) f
-          arr2 = A.generate (A.lift arr2Sh) $ f . adjust
-    return $ Concat 0 [arr1,arr2]
+-- Here is where we should see the difference with the "demand driven"
+-- approach.  We directly create the generate in the right
+-- granularity.  The alternative would be to include Generate
+-- expliticly in Rep, in which case optimizing `(Split . Generate)`
+-- would be trivial.
+generate1 sh f = MkAcc $ \numSplits ->
+  if numSplits == 1
+   then return $ Concat 0 [A.generate sh f]
+   else
+    assert (numSplits == 2) $ do
+     let arrHd = A.indexHead sh
+         arrTl = A.indexTail sh
+     -- Different ways to do this:
+     -- Can ask for N choices within the same range, and then sort.
+     -- Or can make a series of dependent choices chopping up the
+     -- remaining space.  The former works better if answers are, say,
+     -- uniformly random.  The latter is potentially "left biased".
+     -- splits <- sequence $ L.replicate (numSplits-1) $ askTuner ...
 
+     -- But really we want to weight things towards even chunks...
+     -- (chunkSz,remain) = A.indexHead e `quotRem` A.constant numSplitsa
+
+     (ln1,ln2) <- askTunerSplit arrHd
+
+     let arr1Sh = arrTl :. ln1
+         adjust i = let t = A.indexTail i
+                        h = A.indexHead i
+                    in A.lift $ t :. (h + ln1)
+         arr1 = A.generate (A.lift arr1Sh) f
+     return $
+        -- TODO: generalize to N-way:
+        Concat 0 (arr1 :
+                 [ A.generate (A.lift arr2Sh) $ f . adjust
+                 | ln <- [ln2]
+                 , let arr2Sh = arrTl :. ln
+                 ])
 askTunerSplit ::
   (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
   A.Exp a -> m (A.Exp a, A.Exp a)
