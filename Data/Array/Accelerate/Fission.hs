@@ -8,6 +8,7 @@
 module Data.Array.Accelerate.Fission where
 
 -- import Control.Monad
+import           System.IO (stderr, hPutStrLn)
 import           Data.List as L
 import           Control.Exception (assert)
 import           System.IO.Unsafe (unsafePerformIO)
@@ -21,6 +22,7 @@ import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar hiding (dim, Split)
 import qualified Data.Array.Accelerate as A
 -- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
+import           Debug.Trace
 
 
 type TuneM a = ReaderT [(String,Int)] IO a
@@ -183,22 +185,29 @@ go1 :: (Slice sh, Shape sh, Elt a)
     -> Acc (Array (sh :. Int) a)
     -> Array (sh :. Int) a
 go1 exec (MkAcc fn) =
-  case unsafePerformIO $ runTune2 $ fn 2 of
-    (Concat dim arrs)
-      | null arrs   -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
-      | dim /= 0    -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
-      | otherwise   -> exec $ foldr1 (A.++) arrs
+  unsafePerformIO $
+   do rep <- runTune2 $ fn 2
+      putStrLn ("Fission/RUN1: shallow-language term:\n" ++ show rep)
+      case rep of
+        (Concat dim arrs)
+          | null arrs   -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
+          | dim /= 0    -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
+          | otherwise   -> return $! exec $ foldr1 (A.++) arrs
 
 go0 :: (Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array sh a)
     -> Array sh a
 go0 exec (MkAcc fn) =
-  case unsafePerformIO $ runTune2 $ fn 2 of
-    (Concat _ arrs)
-      | null arrs   -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
-      | [a] <- arrs -> exec a
-      | otherwise   -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
+  unsafePerformIO $
+  do rep <- runTune2 $ fn 2
+     putStrLn ("Fission/RUN0: shallow-language term:\n" ++ show rep)
+     case rep of
+      (Concat _ arrs)
+        | null arrs   -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
+        | [a] <- arrs -> return $! exec a
+        | otherwise   -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
+
 
 run :: forall sh a. (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
@@ -206,8 +215,8 @@ run :: forall sh a. (Slice sh, Shape sh, Elt a)
     -> Array sh a
 run exec arrs
   | Just REFL <- matchShape (undefined :: DIM0) (undefined :: sh) = go0 exec arrs
---  | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
---  | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
+  | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
+  | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
   | otherwise                                                     = go0 exec arrs
 
 --------------------------------------------------------------------------------
@@ -467,7 +476,17 @@ fold f a arr
 
 --------------------------------------------------------------------------------
 
--- transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
+-- Transpose is currently not fissioned:
+transpose :: Elt e => Acc (Array DIM2 e) -> Acc (Array DIM2 e)
+transpose (MkAcc fn) = MkAcc $ \_numSplits ->
+  -- Here we tell the upstream to give us one chunk:
+  do inp <- fn 1
+     case inp of
+       (Concat _ arrs)  -> let [arr] = arrs in
+                           return $ Concat 0 [A.transpose arr]
+       -- Policy choice.  We could throw away the split, or maintain it:
+       (Split 0 arr)    -> return $ Split 1  (A.transpose arr)
+       (Split 1 arr)    -> return $ Split 0  (A.transpose arr)
 
 zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
           (A.Exp a -> A.Exp b -> A.Exp c)
@@ -512,8 +531,12 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
 combine :: (Slice sh, Shape sh, Elt e) =>
            Acc (Array (sh :. Int) e)
         -> TuneM (A.Acc (Array (sh :. Int) e))
-combine (MkAcc m) =
-  do res <- m 2
+combine (MkAcc fn) =
+  trace ("FYI: CALLING Fission.combine") $
+  do res <- fn 2
+     lift $ do hPutStrLn stderr (L.replicate 80 '=')
+               hPutStrLn stderr ("combine: shallow-language term:\n" ++ show res)
+               hPutStrLn stderr (L.replicate 80 '=')
      return $ case res of
                (Concat 0 [a]) -> a
                (Concat 0 as)  -> foldr1 (A.++) $ P.map A.compute as

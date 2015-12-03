@@ -5,15 +5,18 @@ module Main where
 
 import           Criterion.Main
 import           System.Environment
-import           Prelude                           as P hiding (concat, map)
+import           Prelude as P hiding (concat, map)
 
-import           Data.Array.Accelerate             (Exp, IsNum, lift, unlift)
-import qualified Data.Array.Accelerate             as A
+import           Data.Array.Accelerate (Exp, IsNum, lift, unlift)
+import qualified Data.Array.Accelerate as A
 import           Data.Array.Accelerate.Array.Sugar as S
-import           Data.Array.Accelerate.Fission     as F
+import           Data.Array.Accelerate.Fission as F
 
 import qualified Data.Array.Accelerate.Interpreter as I
 
+-- import qualified Data.Array.Accelerate.Trafo.Sharing -- hidden module.
+import qualified Data.Array.Accelerate.Trafo as Tr
+import           Debug.Trace
 
 
 arr1 :: A.Acc (Array A.DIM2 Float)
@@ -26,8 +29,24 @@ main = do
   let n   = read n' :: Int
       arr = A.use $ A.fromList (Z :. n :. n) [0.0..] :: A.Acc (Array A.DIM2 Float)
       _brr = A.use $ A.fromList (Z :. n :. n) [100.0..] :: A.Acc (Array A.DIM2 Float)
-  _arr1 <- runTune2 $ matMul arr
-  arr2 <- return $ mmultp' (arr,arr)
+
+      -- arr2 = mmultp' (arr,arr)
+
+  putStrLn "Calling tuner to build matMul program..."
+  arr2 <- runTune2 $ matMul arr
+
+  let noFuse = Tr.convertAccWith (Tr.phases { Tr.enableAccFusion = False , Tr.floatOutAccFromExp = False})
+                  arr2
+
+  putStrLn "\n================================================================================"
+  putStrLn $ "printed AST WITHOUT fusion matMult:\n" ++ (show noFuse)
+
+  putStrLn "\n================================================================================"
+  putStrLn $ "printed AST with fusion matMult:\n" ++ (show arr2)
+
+  putStrLn $ "Result of running:\n " ++ show (I.run arr2)
+{-
+
   if b' == "multi"
   then undefined
   -- then defaultMain [
@@ -38,7 +57,7 @@ main = do
             bgroup "MatMult" [ bench ("normal: n =" ++ (show n)) $ whnf I.run arr2
                        ]
            ]
-
+        -}
 
 type Matrix a = Array A.DIM2 a
 
@@ -78,19 +97,20 @@ matMul' arr brr
 matMul :: (IsNum e, Elt e) => A.Acc (Matrix e)
        -> TuneM (A.Acc (Matrix e))
 matMul arr
-    = do arr'    <- return $ arr
-         arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
-         arrt    <- return $ A.transpose arr'
-         brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
-         c       <- return $ liftAcc $ A.zipWith (*) arrRepl brrRepl
+    -- = do arr'    <- return $ arr
+            -- arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
+            -- arrt    <- return $ A.transpose arr'
+            -- brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
+            -- c       <- return $ liftAcc $ A.zipWith (*) arrRepl brrRepl
     -- this one has the extra backpermutes:
-    -- = do arr'    <- return $ liftAcc arr
-    --      arrRepl <- F.replicate (lift $ Z :. All   :. colsB :. All) arr'
-    --      arrt    <- F.transpose arr'
-    --      brrRepl <- F.replicate (lift $ Z :. rowsA :. All   :. All) arrt
-    --      c       <- F.zipWith (*) arrRepl brrRepl
-         let r = F.fold (+) 0 c
-         F.combine r
+    = let arr'    = liftAcc arr
+          arrRepl = F.replicate (lift $ Z :. All   :. colsB :. All) arr'
+          arrt    = F.transpose arr'
+          brrRepl = F.replicate (lift $ Z :. rowsA :. All   :. All) arrt
+          c       = F.zipWith (*) arrRepl brrRepl
+          r = F.fold (+) 0 c
+       in trace ("FYI: Calling matMul, fissioning version") $
+          F.combine r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
