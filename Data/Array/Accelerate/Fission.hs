@@ -313,36 +313,42 @@ askTunerSplit hd = do
                 then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
                 else error "Can't split like that"
 
-{-
-
-transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
-
+--------------------------------------------------------------------------------
 
 foldn :: (Slice ix, Shape ix, Elt a) =>
-         (A.Exp a -> A.Exp a -> A.Exp a) ->
-         A.Exp a -> Acc (Array (ix :. Int) a) -> Int ->
-         TuneM (Acc (Array ix a))
-foldn f i (MkAcc (Concat _ [])) _n = error "Nothing to do"
-foldn f i (MkAcc (Concat d [arr])) n =
-    do dim     <- askTuner [0..n-1]
-       (a1,a2) <- split dim arr
-       let m1 = A.fold f i a1
-           m2 = A.fold f i a2
-           m3 = A.zipWith f m1 m2
-       return $ MkAcc $ Concat d [m3]
-foldn f i (MkAcc (Concat d [m1,m2])) _n =
-    let m1' = A.fold f i m1
-        m2' = A.fold f i m2
-        m3  = A.zipWith f m1' m2'
-    in return $ MkAcc $ Concat d [m3]
-foldn f i (MkAcc (Concat d ms)) n =
-    do let arr = foldr1 (A.++) ms
-       dim     <- askTuner [0..n-1]
-       (a1,a2) <- split dim arr
-       let m1 = A.fold f i a1
-           m2 = A.fold f i a2
-           m3 = A.zipWith f m1 m2
-       return $ MkAcc $ Concat d [m3]
+         (A.Exp a -> A.Exp a -> A.Exp a)
+      -> A.Exp a
+      -> Acc (Array (ix :. Int) a)
+      -> Int
+      -> (Acc (Array ix a))
+foldn f i (MkAcc fn) dims = MkAcc $ \numSplits ->
+  do inputs <- fn numSplits
+     case inputs of
+       (Concat _ [])     -> error "Nothing to do"
+       (Concat d [arr]) ->
+         do dim     <- askTuner [0..dims-1]
+            (a1,a2) <- split dim arr
+            let m1 = A.fold f i a1
+                m2 = A.fold f i a2
+                m3 = A.zipWith f m1 m2
+            return $ Concat d [m3]
+
+       (Concat d [m1,m2]) ->
+         let m1' = A.fold f i m1
+             m2' = A.fold f i m2
+             m3  = A.zipWith f m1' m2'
+         in return $ Concat d [m3]
+
+       (Concat d ms) ->
+         do let arr = foldr1 (A.++) ms
+            dim     <- askTuner [0..dims-1]
+            (a1,a2) <- split dim arr
+            let m1 = A.fold f i a1
+                m2 = A.fold f i a2
+                m3 = A.zipWith f m1 m2
+            return $ Concat d [m3]
+
+{-
 
 fold1n :: (Slice ix, Shape ix, Elt a) =>
           (A.Exp a -> A.Exp a -> A.Exp a) ->
@@ -370,16 +376,6 @@ fold1n f (MkAcc (Concat d ms)) n =
            m3 = A.zipWith f m1 m2
        return $ MkAcc $ Concat d [m3]
 
-fold :: forall ix a. (Slice ix, Shape ix, Elt a) =>
-        (A.Exp a -> A.Exp a -> A.Exp a) ->
-        A.Exp a -> Acc (Array (ix :. Int) a) ->
-        TuneM (Acc (Array ix a))
-fold f a arr
-    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = foldn f a arr 1
-    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = foldn f a arr 2
-    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = foldn f a arr 3
-    | otherwise = foldn f a arr 0
-
 fold1 :: forall ix a. (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a) ->
          Acc (Array (ix :. Int) a) ->
@@ -391,6 +387,21 @@ fold1 f arr
     | otherwise = fold1n f arr 0
 
 -}
+
+fold :: forall ix a. (Slice ix, Shape ix, Elt a) =>
+        (A.Exp a -> A.Exp a -> A.Exp a)
+     -> A.Exp a
+     -> Acc (Array (ix :. Int) a)
+     -> Acc (Array ix a)
+fold f a arr
+    | Just REFL <- matchShape (undefined :: A.Z)    (undefined :: ix) = foldn f a arr 1
+    | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = foldn f a arr 2
+    | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = foldn f a arr 3
+    | otherwise = foldn f a arr 0
+
+--------------------------------------------------------------------------------
+
+-- transpose (MkAcc (Concat _ [arr])) = return $ MkAcc $ Concat 0 [A.transpose arr]
 
 zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
           (A.Exp a -> A.Exp b -> A.Exp c)

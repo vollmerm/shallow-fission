@@ -25,8 +25,8 @@ main = do
   b' <- getEnv "BACKEND"
   let n   = read n' :: Int
       arr = A.use $ A.fromList (Z :. n :. n) [0.0..] :: A.Acc (Array A.DIM2 Float)
-      brr = A.use $ A.fromList (Z :. n :. n) [100.0..] :: A.Acc (Array A.DIM2 Float)
-  arr1 <- runTune2 $ matMul arr
+      _brr = A.use $ A.fromList (Z :. n :. n) [100.0..] :: A.Acc (Array A.DIM2 Float)
+  _arr1 <- runTune2 $ matMul arr
   arr2 <- return $ mmultp' (arr,arr)
   if b' == "multi"
   then undefined
@@ -89,8 +89,8 @@ matMul arr
     --      arrt    <- F.transpose arr'
     --      brrRepl <- F.replicate (lift $ Z :. rowsA :. All   :. All) arrt
     --      c       <- F.zipWith (*) arrRepl brrRepl
-         r       <- F.fold (+) 0 c
-         return  $  F.combine r
+         let r = F.fold (+) 0 c
+         F.combine r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
@@ -121,4 +121,3 @@ test1 arr
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
-
