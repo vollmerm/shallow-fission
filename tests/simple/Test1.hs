@@ -15,12 +15,12 @@ steps   = A.constant $ 5000
 tarr1 :: Acc (A.Vector Double)
 tarr1 = mkacc $ A.use (A.fromList (A.Z :. arrSize) [0..])
 ta1 = F.map (+ 1) tarr1
-ta2 = do { a1' <- ta1; F.map (* 2) a1' }
-ta3 = do { a2' <- ta2; F.fold1 (+) a2' }
-ta4 = do { a1' <- ta1; a2' <- ta2; F.zipWith (+) a1' a2' }
+ta2 = F.map (* 2) ta1
+-- ta3 = do { a2' <- ta2; F.fold1 (+) a2' }
+ta4 = F.zipWith (+) ta1 ta2
 
 tfe x = A.iterate steps sqrt $ bigNum + x
-tfea = do { a4' <- ta4; F.map tfe a4' }
+tfea = F.map tfe ta4
 
 rarr1 :: A.Acc (A.Vector Double)
 rarr1 = A.use $ A.fromList (A.Z :. arrSize) [0..]
@@ -32,10 +32,8 @@ ra4 = A.zipWith (+) ra1 ra2
 rfea = A.map tfe ra4
 
 main = do
-  ta4' <- runTune2 ta4
-  tfea' <- runTune2 tfea
-  let ta4''  = F.combine ta4'
-      tfea'' = F.combine tfea'
+  ta4''  <- runTune2 $ F.combine ta4
+  tfea'' <- runTune2 $ F.combine tfea
 
   defaultMain [
       bgroup "Test1" [ bench "run fission map"  $ whnf I.run ta4''
