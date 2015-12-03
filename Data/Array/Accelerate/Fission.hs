@@ -7,6 +7,7 @@
 module Data.Array.Accelerate.Fission where
 
 -- import Control.Monad
+import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad
 import Control.Monad.Reader
 import Data.Typeable
@@ -133,37 +134,37 @@ mkacc a = MkAcc $ \_ -> return $ Concat 0 [a]
 -- RUNNING
 --------------------------------------------------------------------------------
 
-{-
 go1 :: (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array (sh :. Int) a)
     -> Array (sh :. Int) a
-go1 exec (MkAcc (Concat dim arrs))
-  | null arrs   = error "Data.Array.Accelerate.Fusion.go1: nothing to do"
-  | dim /= 0    = error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
-  | otherwise   = exec $ foldr1 (A.++) arrs
-
+go1 exec (MkAcc fn) =
+  case unsafePerformIO $ runTune2 $ fn 2 of
+    (Concat dim arrs)
+      | null arrs   -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
+      | dim /= 0    -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
+      | otherwise   -> exec $ foldr1 (A.++) arrs
 
 go0 :: (Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array sh a)
     -> Array sh a
-go0 exec (MkAcc (Concat _ arrs))
-  | null arrs   = error "Data.Array.Accelerate.Fusion.go0: nothing to do"
-  | [a] <- arrs = exec a
-  | otherwise   = error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
-
+go0 exec (MkAcc fn) =
+  case unsafePerformIO $ runTune2 $ fn 2 of
+    (Concat _ arrs)
+      | null arrs   -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
+      | [a] <- arrs -> exec a
+      | otherwise   -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
 
 run :: forall sh a. (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array sh a)
     -> Array sh a
 run exec arrs
-  -- | Just REFL <- matchShape (undefined :: DIM0) (undefined :: sh) = go0 exec arrs
-  | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
-  | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
+  | Just REFL <- matchShape (undefined :: DIM0) (undefined :: sh) = go0 exec arrs
+--  | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
+--  | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
   | otherwise                                                     = go0 exec arrs
--}
 
 --------------------------------------------------------------------------------
 -- Wrappers for Core Accelerate operations
@@ -271,7 +272,11 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
 
 generate :: (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
          -> (Acc (Array ix a))
--- Here
+-- Here is where we should see the difference with the "demand driven"
+-- approach.  Rather than generating a split-of-generate, we directly
+-- create the generate in the right granularity.  The alternative
+-- would be to include Generate expliticly in Rep, in which case
+-- optimizing `(Split . Generate)` would be trivial.
 generate e f = MkAcc $ \_numSplits ->
   return $ Concat 0 [A.generate e f]
 
