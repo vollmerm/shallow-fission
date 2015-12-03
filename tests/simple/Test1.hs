@@ -13,7 +13,7 @@ bigNum  = A.constant $ 100000.0 :: A.Exp Double
 steps   = A.constant $ 5000
 
 tarr1 :: Acc (A.Vector Double)
-tarr1 = mkacc $ A.use (A.fromList (A.Z :. arrSize) [0..])
+tarr1 = liftAcc $ A.use (A.fromList (A.Z :. arrSize) [0..])
 ta1 = F.map (+ 1) tarr1
 ta2 = F.map (* 2) ta1
 -- ta3 = do { a2' <- ta2; F.fold1 (+) a2' }

@@ -64,7 +64,7 @@ matMul' arr brr
 --        -> TuneM (Acc (Matrix e))
 -- matMul arr brr
 --     = do let c = A.zipWith (*) arrRepl brrRepl
---          F.fold (+) 0 (mkacc c)
+--          F.fold (+) 0 (liftAcc c)
 --     where
 --       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
 --       Z :. _     :. colsB = unlift (A.shape brr)    :: Z :. Exp Int :. Exp Int
@@ -82,9 +82,9 @@ matMul arr
          arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
          arrt    <- return $ A.transpose arr'
          brrRepl <- return $ A.replicate (lift $ Z :. rowsA :. All   :. All) arrt
-         c       <- return $ mkacc $ A.zipWith (*) arrRepl brrRepl
+         c       <- return $ liftAcc $ A.zipWith (*) arrRepl brrRepl
     -- this one has the extra backpermutes:
-    -- = do arr'    <- return $ mkacc arr
+    -- = do arr'    <- return $ liftAcc arr
     --      arrRepl <- F.replicate (lift $ Z :. All   :. colsB :. All) arr'
     --      arrt    <- F.transpose arr'
     --      brrRepl <- F.replicate (lift $ Z :. rowsA :. All   :. All) arrt
@@ -98,7 +98,7 @@ matMul arr
 -- matMul :: (IsNum e, Elt e) => A.Acc (Matrix e)
 --        -> TuneM (Acc (Matrix e))
 -- matMul arr
---     = do arr'    <- return $ mkacc arr
+--     = do arr'    <- return $ liftAcc arr
 --          arrRepl <- F.replicate (lift $ Z :. All   :. colsB :. All) arr'
 --          c       <- F.zipWith (*) arrRepl arrRepl
 --          F.fold (+) 0 c

@@ -12,7 +12,7 @@ testArrN x = A.use $ A.fromList (A.Z :. x) [0..]
 
 whileLoopF :: Int -> (Acc (A.Vector Double))
 whileLoopF x =
-  let arr = mkacc $ A.use (A.fromList (A.Z :. x) [0..])
+  let arr = liftAcc $ A.use (A.fromList (A.Z :. x) [0..])
       arr' = F.map (+ 1.0) arr
   in F.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) arr'
 

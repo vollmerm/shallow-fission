@@ -314,8 +314,8 @@ advanceBodies
     -> (Acc (Vector Body))
 advanceBodies calcFn timeStep bodies =
   let pmbodies  = A.map pointMassOfBody bodies
-      pmbodies' = mkacc pmbodies
-      bodies'   = mkacc bodies
+      pmbodies' = liftAcc pmbodies
+      bodies'   = liftAcc bodies
       accels    = calcFn pmbodies pmbodies'
       advance b a = let m = massOfPointMass (pointMassOfBody b)
                         a' = m *. a
