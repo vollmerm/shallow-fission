@@ -55,3 +55,8 @@ script:
   - stack build
   # - stack haddock
 
+notifications:
+  slack:
+    rooms:
+      secure: "R04jcY6Mf/3QVHVkLlhE/QoQqn6n71PUQYLWcZUm+e5v/G8oCLg0UfPiGTKvMB+bgE1BxHYuZWiehYIevqNKV2jqUIPBoUvBUBDHq5AcKyCIYQGpR3sZ5h88f3Kf/8W70iBm4vV8D+CZOPHoQ+IyqIpteX+883YCFPJpHo10fQX4EKdskOffmbH7IsKAYK74sBhIagUPqs7+0T/6MWX/O+GguZqj3QUXBVr/1I95mFk48tVsQV2L22IKmXq1CYgs0rd9PhVFjCRmxvIrZzdjKfzPqE9Y6KrN1Bol6Rpkmcmajsc/dncQFxhvJFwb0XvLPzRlT8/lxQuADsaWF3qH2laoa+Kme+dQV+yGtudAgJTraEBtd/9qPY2DAM/0dpB/vu8+aYFdCApAYTkeOdxr5jHZ/LyGdOXF7zHvwRPvp82AAtpPslKZJD+AGKN+kiopQviuAzPgyRwyBxKMNMVHQyMn5yMyUBWaKyKzD8WGu2zYI0wXBdu2YKmXKnBa/zyAKDjctUVBSq8F70qSQlkdJPAlMetCxkgoYcrrop1DEO3+YA/64I9+IcFomAVp5isDvh4UfB6awyKl9LRHPWDl604QkWlDGhRPR4UzS1J9I0HawINGmTmmtTh2oftENmjpZRmPfQJp0E2yMCij8UQDdi5C16c89bweoQ3EkenweIU="
+
