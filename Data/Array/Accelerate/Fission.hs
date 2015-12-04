@@ -99,12 +99,15 @@ mkSplit d1 rep =
 --------------------------------------------------------------------------------
 -- Utilities
 
-split :: (A.Slice sh,Shape sh,Elt a)
-      => DimId
-      -> A.Acc (Array (sh A.:. Int) a)
-      -> TuneM ( A.Acc (Array (sh A.:. Int) a),
-                 A.Acc (Array (sh A.:. Int) a))
-split _dimid arr = return (arr1, arr2)
+-- | This creates an actual split kernel.  We RARELY want to use this.
+--   Rather, we want to NEVER create the unchunked versions in the first place
+--   so as to not need this.
+dosplit :: (A.Slice sh,Shape sh,Elt a)
+        => DimId
+        -> A.Acc (Array (sh A.:. Int) a)
+        -> TuneM ( A.Acc (Array (sh A.:. Int) a),
+                   A.Acc (Array (sh A.:. Int) a))
+dosplit _dimid arr = return (arr1, arr2)
     where arrTl = A.indexTail $ A.shape arr
           arrHd = A.indexHead $ A.shape arr
           (chunk, leftover) = arrHd `quotRem` 2
@@ -236,7 +239,7 @@ map1n f (MkAcc m) n = MkAcc $ \numSplits ->
          -- but we can't do that yet so we only do two-way:
          [arr] | numSplits > 1 -> do
            dim     <- askTuner [0..n-1]
-           (a1,a2) <- split dim arr -- TODO: multi-way split.
+           (a1,a2) <- dosplit dim arr -- TODO: multi-way split.
            let m1 = A.map f a1
                m2 = A.map f a2
            return $ Concat dim [m1,m2]
@@ -402,7 +405,7 @@ foldn f i (MkAcc fn) dims = MkAcc $ \numSplits ->
        (Concat _ [])     -> error "Nothing to do"
        (Concat d [arr]) ->
          do dim     <- askTuner [0..dims-1]
-            (a1,a2) <- split dim arr
+            (a1,a2) <- dosplit dim arr
             let m1 = A.fold f i a1
                 m2 = A.fold f i a2
                 m3 = A.zipWith f m1 m2
@@ -414,10 +417,12 @@ foldn f i (MkAcc fn) dims = MkAcc $ \numSplits ->
              m3  = A.zipWith f m1' m2'
          in return $ Concat d [m3]
 
+       -- FIXME: no reason to throw away task parallelism here.
+       -- Just mimick the 2-way case with an N-way one.
        (Concat d ms) ->
          do let arr = foldr1 (A.++) ms
             dim     <- askTuner [0..dims-1]
-            (a1,a2) <- split dim arr
+            (a1,a2) <- dosplit dim arr
             let m1 = A.fold f i a1
                 m2 = A.fold f i a2
                 m3 = A.zipWith f m1 m2
@@ -501,8 +506,8 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
     (_,[])  -> error "Nothing to do"
     ([m1], [m2]) | numSplits > 1 ->
       do dim <- askTuner [0..10]
-         (m11,m12) <- split dim m1
-         (m21,m22) <- split dim m2
+         (m11,m12) <- dosplit dim m1
+         (m21,m22) <- dosplit dim m2
          let m1' = A.zipWith f m11 m21
              m2' = A.zipWith f m12 m22
          return $ Concat d1 [m1',m2']
@@ -514,7 +519,7 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
       -- do let m2 = (A.compute m21) A.++ (A.compute m22)
       --    return $ MkAcc $ Concat 0 [(A.zipWith f m1 m2)]
       do dim <- askTuner [0]
-         (m11,m12) <- split dim m1
+         (m11,m12) <- dosplit dim m1
          let m1' = A.zipWith f m11 m21
              m2' = A.zipWith f m12 m22
          return $ Concat d1 [m1',m2']
