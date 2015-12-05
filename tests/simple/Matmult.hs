@@ -136,7 +136,7 @@ test1 arr
     = do let arrRepl = A.replicate (lift $ Z :. All   :. colsB :. All) arr
              brrRepl = A.replicate (lift $ Z :. rowsA :. All   :. All) $ A.transpose arr
              newArr  = A.zipWith (*) arrRepl brrRepl
-         (a1,a2) <- split 0 newArr
+         (a1,a2) <- dosplit 0 newArr
          return $ A.zipWith (+) (A.fold (+) 0 a1) (A.fold (+) 0 a2)
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
