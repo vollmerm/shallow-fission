@@ -23,6 +23,7 @@ import           Data.Array.Accelerate.Array.Sugar hiding (dim, Split)
 import qualified Data.Array.Accelerate as A
 -- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
 import           Debug.Trace
+import qualified Data.Array.Accelerate.Array.Representation as R
 
 
 type TuneM a = ReaderT [(String,Int)] IO a
@@ -132,6 +133,8 @@ dosplit _dimid arr = return (arr1, arr2)
     --               bsh               = A.lift $ (A.indexTail $ A.shape arr) A.:. (end - start)
     --               f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
     --           in A.backpermute bsh f arr
+
+-- doConcat
 
 
 askTuner :: [Int] -> TuneM Int
@@ -324,6 +327,50 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
          in return $ Concat 0 [arr1,arr2]
 
        _ -> error "replicate: unhandled cases"
+
+-- | Check if a dimension of interest is extruded.
+isExtruded :: Slice ix => Int -> R.SliceIndex ix slice coSlice sliceDim -> Bool
+isExtruded origd origsl = go origd origsl
+  where
+   go :: Int -> R.SliceIndex ix slice coSlice sliceDim -> Bool
+   go _ R.SliceNil = error "isExtruded: dimension index exceeds slice dimensions: "
+   go 0 (R.SliceAll _)      = False
+   go 0 (R.SliceFixed _)    = True
+   go d (R.SliceAll rest)   = go (d-1) rest
+   go d (R.SliceFixed rest) = go (d-1) rest
+
+-- | Cut a fixed dimension into two pieces, given a split point.
+splitDim :: forall ix. Slice ix => Int -> A.Exp ix -> A.Exp Int -> (A.Exp ix,A.Exp ix)
+splitDim dim orig splitPt =
+   go dim orig (A.sliceIndex (undefined::ix))
+  where
+   go :: forall ix  slice coSlice sliceDim .
+         Int
+      -> A.Exp ix
+      -> R.SliceIndex (EltRepr ix) slice coSlice sliceDim
+      -> (A.Exp ix,A.Exp ix)
+   go _ _ R.SliceNil = error $ "splitDim: dimension "++show dim++"index exceeds shape dims: "
+   go _ idxE (R.SliceFixed _rst) =
+     -- EltRepr ix ~ (ix0,Int)
+     undefined
+
+{-
+   $
+   go dim (Proxy::Proxy ix) (fromElt orig) (A.sliceIndex (undefined::ix))
+  where
+   go :: forall ix  slice coSlice sliceDim .
+         Int
+      -> Proxy ix
+      -> A.Exp (EltRepr ix)
+      -> R.SliceIndex (EltRepr ix) slice coSlice sliceDim
+      -> (A.Exp (EltRepr ix),A.Exp (EltRepr ix))
+   go d _ idxE si =
+    case (d,idxE,si) of
+      (_,_,R.SliceNil) -> error $ "splitDim: dimension "++show dim++"index exceeds shape dims: "
+      (_,ind,R.SliceFixed _rst) ->
+        let -- _sl1 = (A.indexTail ind) -- :. (A.indexHead idxE - splitPt)
+        in undefined
+-}
 
 generate0 :: (Elt a) => A.Exp Z -> (A.Exp Z -> A.Exp a) -> Acc (Array Z a)
 -- Cannot meaningfully split zero dim:
