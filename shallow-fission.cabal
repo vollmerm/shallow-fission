@@ -98,4 +98,17 @@ executable fission-mandelbrot
         , shallow-fission       == 0.1.0.0
         , criterion
 
+executable fission-matrix-multiply
+  default-language:     Haskell2010
+  main-is:              Main.hs
+  hs-source-dirs:       tests/matrix-multiply
+  ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+  --
+  build-depends:
+          base                  >= 4.7
+        , accelerate            >= 2.0
+        , shallow-fission       == 0.1.0.0
+        , criterion
+
+
 -- vim: nospell
