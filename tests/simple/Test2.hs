@@ -10,31 +10,26 @@ import           Prelude                           as P hiding (concat)
 testArrN :: Int -> A.Acc (A.Vector Double)
 testArrN x = A.use $ A.fromList (A.Z :. x) [0..]
 
-whileLoopF :: Int -> TuneM (Acc (A.Vector Double))
-whileLoopF x = do
-  let arr = mkacc $ A.use (A.fromList (A.Z :. x) [0..])
-  arr' <- F.map (+ 1.0) arr
-  F.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) arr'
+whileLoopF :: Int -> (Acc (A.Vector Double))
+whileLoopF x =
+  let arr = liftAcc $ A.use (A.fromList (A.Z :. x) [0..])
+      arr' = F.map (+ 1.0) arr
+  in F.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) arr'
 
 whileLoopN x = A.map (\y -> A.iterate ((A.constant x) * 10) sqrt y) (A.map (+ 1.0) (testArrN x))
 
 main = do
-  progf1 <- runTune2 $ whileLoopF 10000
-  progf2 <- runTune2 $ whileLoopF 15000
-  progf3 <- runTune2 $ whileLoopF 20000
-  progf4 <- runTune2 $ whileLoopF 25000
-  progf5 <- runTune2 $ whileLoopF 30000
-  let progf1' = F.combine progf1
-      progf2' = F.combine progf2
-      progf3' = F.combine progf3
-      progf4' = F.combine progf4
-      progf5' = F.combine progf5
+  progf1 <- runTune2 $ F.combine $ whileLoopF 10000
+  progf2 <- runTune2 $ F.combine $ whileLoopF 15000
+  progf3 <- runTune2 $ F.combine $ whileLoopF 20000
+  progf4 <- runTune2 $ F.combine $ whileLoopF 25000
+  progf5 <- runTune2 $ F.combine $ whileLoopF 30000
   defaultMain [
-        bgroup "while loop" [ bench "F10000" $ whnf I.run progf1'
-                            , bench "F15000" $ whnf I.run progf2'
-                            , bench "F20000" $ whnf I.run progf3'
-                            , bench "F25000" $ whnf I.run progf4'
-                            , bench "F30000" $ whnf I.run progf5'
+        bgroup "while loop" [ bench "F10000" $ whnf I.run progf1
+                            , bench "F15000" $ whnf I.run progf2
+                            , bench "F20000" $ whnf I.run progf3
+                            , bench "F25000" $ whnf I.run progf4
+                            , bench "F30000" $ whnf I.run progf5
                             , bench "N10000" $ whnf I.run (whileLoopN 10000)
                             , bench "N15000" $ whnf I.run (whileLoopN 15000)
                             , bench "N20000" $ whnf I.run (whileLoopN 20000)
@@ -42,4 +37,3 @@ main = do
                             , bench "N30000" $ whnf I.run (whileLoopN 30000)
                             ]
        ]
-

@@ -60,9 +60,9 @@ main = do
                         $ A.zipWith setMassOfBody (A.use masses)
                         $ A.map unitBody (A.use positions)
 
-      step bodies = do
-        b <- runTune2 $ advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
-        return $ F.run I.run b
+      step bods = do
+        F.run I.run $
+          advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bods
   --
   defaultMain
     [ bgroup "nbody" [ bench ("n = " ++ show n) $ whnf step bodies
@@ -77,7 +77,7 @@ main = do
 --   body from all other bodies in the system.
 --
 calcAccels :: Exp R -> A.Acc (Vector PointMass) -> F.Acc (Vector PointMass)
-           -> TuneM (F.Acc (Vector Accel))
+           -> (F.Acc (Vector Accel))
 calcAccels epsilon abodies bodies
   = let move body       = A.sfoldl (\acc next -> acc .+. accel epsilon body next)
                                    (vec 0)
@@ -308,19 +308,20 @@ data World
 advanceBodies
     :: (A.Acc (Vector PointMass) ->
         Acc (Vector PointMass) ->
-        TuneM (Acc (Vector Accel)))     -- ^ Function to compute accelerations at each point
+        (Acc (Vector Accel)))           -- ^ Function to compute accelerations at each point
     -> A.Acc (Scalar Time)              -- ^ Time step
     -> A.Acc (Vector Body)              -- ^ Bodies
-    -> TuneM (Acc (Vector Body))
-advanceBodies calcAccels timeStep bodies = do
-  pmbodies <- return $ A.map pointMassOfBody bodies
-  let pmbodies' = mkacc pmbodies
-      bodies'   = mkacc bodies
-  accels <- calcAccels pmbodies pmbodies'
-  let advance b a = let m = massOfPointMass (pointMassOfBody b)
+    -> (Acc (Vector Body))
+advanceBodies calcFn timeStep bodies =
+  let pmbodies  = A.map pointMassOfBody bodies
+      pmbodies' = liftAcc pmbodies
+      bodies'   = liftAcc bodies
+      accels    = calcFn pmbodies pmbodies'
+      advance b a = let m = massOfPointMass (pointMassOfBody b)
                         a' = m *. a
                     in advanceBody (the timeStep) (setAccelOfBody a' b)
-  F.zipWith advance bodies' accels
+  in F.zipWith advance bodies' accels
+
   -- = let
   --       -- Calculate the accelerations on each body.
   --       accels          = calcAccels
@@ -383,4 +384,3 @@ cloud (fromIntegral -> sizeX, fromIntegral -> sizeY) radiusMax ix gen
         2 -> blob (-0.05, 0.30,-0.30) 0.35 ix gen
         3 -> blob (-0.20,-0.12,-0.12) 0.45 ix gen
         _ -> blob ( 0.15,-0.10, 0.20) 0.75 ix gen
-

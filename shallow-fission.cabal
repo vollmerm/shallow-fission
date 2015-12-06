@@ -23,6 +23,7 @@ library
         , accelerate            >= 2.0
         , mtl                   >= 2.0
 
+  ghc-options:  -Wall
 
 executable fission-test1
   default-language:     Haskell2010

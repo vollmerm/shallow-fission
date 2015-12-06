@@ -36,10 +36,11 @@ main = do
 options :: Int -> IO (Acc (Vector (Float,Float,Float)))
 options n = A.use <$> randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
 
-blackscholes :: (Elt a, IsFloating a) => Acc (Vector (a, a, a)) -> F.TuneM (Acc (Vector (a, a)))
-blackscholes arr = do let arr' = F.mkacc arr
-                      r <- F.map go arr'
-                      return $ F.combine r
+blackscholes :: (Elt a, IsFloating a)
+             => Acc (Vector (a, a, a)) -> F.TuneM (Acc (Vector (a, a)))
+blackscholes arr = let arr' = F.liftAcc arr
+                       r    = F.map go arr'
+                   in F.combine r
   where
   go x =
     let (price, strike, years) = A.unlift x
