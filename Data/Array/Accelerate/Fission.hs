@@ -293,23 +293,49 @@ map f arr
 
 
 -- Here's the type we WANT, to match `A.replicate`
--- replicate :: (Slice slix, Elt e) =>
---               A.Exp slix
---            -> Acc (Array (SliceShape slix) e)
---            -> Acc (Array (FullShape slix) e)
-
--- Here's the current type:
-replicate :: (A.IsIntegral a, Slice slix, Slice sh, Shape (sh :. a), Elt e, Elt a,
-             FullShape slix ~ (sh :. a))
+replicate :: forall slix e . (Slice slix, Elt e)
           => A.Exp slix
           -> Acc (Array (SliceShape slix) e)
-          -> Acc (Array (sh :. a) e)
+          -> Acc (Array (FullShape slix) e)
+
 replicate e (MkAcc fn) = MkAcc $ \numSplits ->
   -- TODO: Need a new policy here for how to split.
   do res <- fn numSplits
      case res of
        (Concat _ []) -> error "Nothing to do"
-       (Concat _d [arr]) ->
+
+       (Concat dim [arr]) ->
+         -- Two options here.
+         --  (1) we can manifest a split kernel and use the pieces
+         --  (2) we can split along an extruded dimension, for free.
+         -- If we choose 2, then we actually produce two copies of the same
+         -- kernel.  We can decide here to share them or not.  If we do, we
+         -- leave the final decision to a hypothetical downstream optimization.
+         error "replicate: unsplit input..."
+
+       (Concat dim ls@(_:_:_)) ->
+          let dim2 = adjustDim dim (A.sliceIndex (undefined::slix))
+          in return $ Concat dim2 (L.map (A.replicate e) ls )
+
+       _ -> error "replicate: unhandled cases"
+
+
+-- Here's the type we ended up with on Michael's first try:
+{-
+replicate :: forall slix a sh e .
+             (A.IsIntegral a, Slice slix, Slice sh, Shape (sh :. a), Elt e, Elt a,
+              FullShape slix ~ (sh :. a))
+          => A.Exp slix
+          -> Acc (Array (SliceShape slix) e)
+          -> Acc (Array (sh :. a) e)
+-}
+-- Michael's first attempt:
+{-
+
+       (Concat dim [arr])
+--         | isExtruded translated_dim (sliceIndex (undefined::ix)) ->
+--           error "replicate: doesn't yet support fissioning in extruded dimension"
+         | otherwise ->
          -- generate (A.shape arr') (\s -> arr' A.! s)
          -- where arr' = A.replicate e arr
          let arr'   = A.replicate e arr
@@ -325,8 +351,25 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
              arr1   = A.generate (A.lift arr1Sh) (\sh -> arr' A.! sh)
              arr2   = A.generate (A.lift arr2Sh) (\sh -> arr' A.! (adjust sh))
          in return $ Concat 0 [arr1,arr2]
+-}
 
-       _ -> error "replicate: unhandled cases"
+
+-- The dimension we concat on may slide over due to insertion of new dims.
+adjustDim :: Int -> R.SliceIndex ix slice coSlice sliceDim -> Int
+adjustDim _ R.SliceNil   = error "adjustDim: overran the dimensions."
+adjustDim d (R.SliceFixed r) = adjustDim d r
+adjustDim 0 (R.SliceAll _)   = 0
+adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
+
+
+caseSlice :: forall ix b . A.Slice ix =>
+             A.Exp ix
+          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => b)
+          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => b)
+          -> ((ix ~ A.Z) => b)
+          -> ((ix ~ A.All) => b)
+          -> b
+caseSlice = error "caseSlice - Trevor can probably figure out how to implement this"
 
 -- | Check if a dimension of interest is extruded.
 isExtruded :: Slice ix => Int -> R.SliceIndex ix slice coSlice sliceDim -> Bool
@@ -344,6 +387,13 @@ splitDim :: forall ix. Slice ix => Int -> A.Exp ix -> A.Exp Int -> (A.Exp ix,A.E
 splitDim dim orig splitPt =
    go dim orig (A.sliceIndex (undefined::ix))
   where
+
+   _test :: ()
+   _test = caseSlice orig
+           (let _ = A.indexHead orig in ())
+           (let _ = A.indexTail orig in ())
+           () ()
+
    go :: forall ix  slice coSlice sliceDim .
          Int
       -> A.Exp ix
@@ -631,6 +681,12 @@ ac1 = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr0
 ac2 :: IO (A.Acc (Array (DIM0 :. Int) Double))
 ac2 = runTune2 $ let a = Data.Array.Accelerate.Fission.map (+ 1) arr0
                  in combine $ Data.Array.Accelerate.Fission.zipWith (+) a a
+
+ac3 :: IO (A.Acc (Array DIM2 Double))
+ac3 = runTune2 $ combine $
+      Data.Array.Accelerate.Fission.replicate
+        (A.constant (Z :. (3::Int) :. All)) arr0
+
 
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
