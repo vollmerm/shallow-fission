@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE CPP #-}
 
 module Data.Array.Accelerate.Fission
        (
@@ -28,7 +29,7 @@ module Data.Array.Accelerate.Fission
 
        -- * Temporary tests:
        , arr0, ac1, ac2, ac3
-       , run -- TODO: replace this with a run-builder parameterized over backends.
+       , run', run -- TODO: replace this with a run-builder parameterized over backends.
        )
        where
 
@@ -47,7 +48,11 @@ import qualified Prelude as P
 import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar hiding (dim, Split)
 import qualified Data.Array.Accelerate as A
--- import qualified Data.Array.Accelerate.Interpreter      as I -- For testing.
+#ifdef ACCELERATE_CUDA_BACKEND
+import qualified Data.Array.Accelerate.CUDA             as B
+#else
+import qualified Data.Array.Accelerate.Interpreter      as B -- For testing.
+#endif
 import           Debug.Trace
 import qualified Data.Array.Accelerate.Array.Representation as R
 
@@ -251,6 +256,11 @@ run exec arrs
   | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = go1 exec arrs
   | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = go1 exec arrs
   | otherwise                                                     = go0 exec arrs
+
+run' :: forall sh a.
+        (Elt a, Slice sh, Shape sh) =>
+        Acc (Array sh a) -> Array sh a
+run' arrs = run B.run arrs
 
 --------------------------------------------------------------------------------
 -- Wrappers for Core Accelerate operations

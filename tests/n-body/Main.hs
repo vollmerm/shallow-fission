@@ -1,20 +1,38 @@
+{-# LANGUAGE CPP           #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns  #-}
 
 module Main where
 
 import           Criterion.Main
-import           Data.Array.Accelerate                   (Z(..), (:.) (..), DIM1, Elt, Exp, IsFloating, IsNum, Scalar, Vector, constant, lift, the, unlift)
+import           Data.Array.Accelerate                   ((:.) (..), DIM1, Elt,
+                                                          Exp, IsFloating,
+                                                          IsNum, Scalar, Vector,
+                                                          Z (..), constant,
+                                                          lift, the, unlift)
 import qualified Data.Array.Accelerate                   as A
 import qualified Data.Array.Accelerate.Array.Sugar       as S
+#ifdef FISSION
 import           Data.Array.Accelerate.Fission           as F
-import qualified Data.Array.Accelerate.Interpreter       as I
+#elseif
+import           Data.Array.Accelerate                   as F
+#endif
 import           Data.Array.Accelerate.System.Random.MWC
+#ifdef ACCELERATE_CUDA_BACKEND
+import qualified Data.Array.Accelerate.CUDA              as B
+#else
+import qualified Data.Array.Accelerate.Interpreter       as B
+#endif
 
-import           Prelude                                 as P hiding (concat, map)
+import           Prelude                                 as P hiding (concat,
+                                                               map)
 -- import qualified System.Random.MWC                       as R
 
-
+#ifdef FISSION
+localRun = F.run'
+#else
+localRun = B.run
+#endif
 
 -- step = P.curry I.run
 --        $ A.uncurry $ advanceBodies (calcAccels $ constant epsilon)
@@ -55,13 +73,13 @@ main = do
   masses        <- randomArray (uniformR (1, mass))       (Z :. n)
   positions     <- randomArray (cloud (size,size) radius) (Z :. n)
 
-  let bodies            = I.run
+  let bodies            = B.run
                         $ A.map (setStartVelOfBody . constant $ startSpeed)
                         $ A.zipWith setMassOfBody (A.use masses)
                         $ A.map unitBody (A.use positions)
 
       step bods = do
-        F.run I.run $
+        localRun $
           advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bods
   --
   defaultMain
