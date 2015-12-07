@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Data.Array.Accelerate.Fission where
 
@@ -308,10 +309,13 @@ replicate e (MkAcc fn) = MkAcc $ \numSplits ->
          -- Two options here.
          --  (1) we can manifest a split kernel and use the pieces
          --  (2) we can split along an extruded dimension, for free.
-         -- If we choose 2, then we actually produce two copies of the same
-         -- kernel.  We can decide here to share them or not.  If we do, we
-         -- leave the final decision to a hypothetical downstream optimization.
-         error "replicate: unsplit input..."
+         return $
+         if True
+            then let (dim',e1,e2) = splitExtruded e
+                 in Concat dim' [ A.replicate e1 arr
+                                , A.replicate e2 arr ]
+            else -- Finally, this is the do-nothing approach:
+                 Concat dim [A.replicate e arr]
 
        (Concat dim ls@(_:_:_)) ->
           let dim2 = adjustDim dim (A.sliceIndex (undefined::slix))
@@ -362,14 +366,27 @@ adjustDim 0 (R.SliceAll _)   = 0
 adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
 
 
+-- The problem with this is that it leads to inaccessible code errors:
 caseSlice :: forall ix b . A.Slice ix =>
              A.Exp ix
-          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => b)
-          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => b)
-          -> ((ix ~ A.Z) => b)
-          -> ((ix ~ A.All) => b)
+          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => () -> b)
+          -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => () -> b)
+          -> ((ix ~ A.Z)   => () -> b)
+          -> ((ix ~ A.All) => () -> b)
           -> b
 caseSlice = error "caseSlice - Trevor can probably figure out how to implement this"
+
+caseSliceFixed :: forall ix b . A.Slice ix
+               => A.Exp ix
+               -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => b)
+               -> b -> b
+caseSliceFixed = error "caseSliceFixed - Trevor can probably figure out how to implement this"
+
+caseSliceAll :: forall ix b . A.Slice ix
+               => A.Exp ix
+               -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => b)
+               -> b -> b
+caseSliceAll = error "caseSliceAll - Trevor can probably figure out how to implement this"
 
 -- | Check if a dimension of interest is extruded.
 isExtruded :: Slice ix => Int -> R.SliceIndex ix slice coSlice sliceDim -> Bool
@@ -382,17 +399,47 @@ isExtruded origd origsl = go origd origsl
    go d (R.SliceAll rest)   = go (d-1) rest
    go d (R.SliceFixed rest) = go (d-1) rest
 
+
+-- | Find the first extruded dimension and split that roughly in half.
+--   Return two new slice expressions as well as the integer index of the dimension split.
+splitExtruded :: forall ix. Slice ix => A.Exp ix -> (Int, A.Exp ix,A.Exp ix)
+splitExtruded orig =
+   go (0::Int) orig (A.sliceIndex (undefined::ix))
+  where
+   go :: forall ix0 s c d . Slice ix0 =>
+         Int -> A.Exp ix0 -> R.SliceIndex (EltRepr ix0) s c d
+      -> (Int, A.Exp ix0, A.Exp ix0)
+   go _ _ R.SliceNil = undefined
+   go d e (R.SliceFixed _) =
+            caseSliceFixed e
+               (let hd = A.indexHead e
+                    tl = A.indexTail e
+                    (q,r) = quotRem hd 2
+                in (d, sliceSnoc (q+r) tl,
+                       sliceSnoc q tl))
+               (error "splitExtruded: impossible")
+   -- Original rather than extruded dim, keep going:
+   go d e (R.SliceAll rest) =
+     caseSliceAll e
+       (let hd = A.indexHead e
+            tl = A.indexTail e
+            (d2,sl1,sl2) = go (d+1) tl rest
+        in (d2, sliceSnoc hd sl1,
+                sliceSnoc hd sl2))
+       (error "splitExtruded: impossible")
+
+
+sliceSnoc :: A.Exp a -> A.Exp sh -> A.Exp (sh :. a)
+sliceSnoc = undefined
+
+
+-- Trash to garbage collect
+--------------------------------------------------------------------------------
 -- | Cut a fixed dimension into two pieces, given a split point.
-splitDim :: forall ix. Slice ix => Int -> A.Exp ix -> A.Exp Int -> (A.Exp ix,A.Exp ix)
-splitDim dim orig splitPt =
+_splitDim :: forall ix. Slice ix => Int -> A.Exp ix -> A.Exp Int -> (A.Exp ix,A.Exp ix)
+_splitDim dim orig splitPt =
    go dim orig (A.sliceIndex (undefined::ix))
   where
-
-   _test :: ()
-   _test = caseSlice orig
-           (let _ = A.indexHead orig in ())
-           (let _ = A.indexTail orig in ())
-           () ()
 
    go :: forall ix  slice coSlice sliceDim .
          Int
@@ -421,6 +468,8 @@ splitDim dim orig splitPt =
         let -- _sl1 = (A.indexTail ind) -- :. (A.indexHead idxE - splitPt)
         in undefined
 -}
+--------------------------------------------------------------------------------
+
 
 generate0 :: (Elt a) => A.Exp Z -> (A.Exp Z -> A.Exp a) -> Acc (Array Z a)
 -- Cannot meaningfully split zero dim:
