@@ -6,18 +6,43 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
-module Data.Array.Accelerate.Fission where
+module Data.Array.Accelerate.Fission
+       (
+         -- * The (Fissioned) Array language
+         Acc
+       , replicate, zipWith, generate, fold, map
+
+       -- * Derived Array operations (the Prelude)
+       , transpose
+
+       -- * Accelerate expression language, reexported
+       , A.Exp, (A.:.)(..)
+       -- TODO: need an efficient way to list the whole Exp language:
+
+       -- * Extra utilities for working with chunked/fissioned data:
+       , liftAcc, combine
+       , mkSplit, mkConcat, dosplit, doConcat
+
+       -- * Temporary, will move elsewhere
+       , TuneM, runTune2
+
+       -- * Temporary tests:
+       , arr0, ac1, ac2, ac3
+       , run -- TODO: replace this with a run-builder parameterized over backends.
+       )
+       where
 
 -- import Control.Monad
 import           System.IO (stderr, hPutStrLn)
-import           Data.List as L
+import qualified Data.List as L
 import           Control.Exception (assert)
 import           System.IO.Unsafe (unsafePerformIO)
 import           Control.Monad
 import           Control.Monad.Reader
 import           Data.Typeable
 -- import Unsafe.Coerce
-import           Prelude as P hiding ( concat )
+import           Prelude hiding ( concat, replicate, zipWith, map )
+import qualified Prelude as P
 -- import Data.Array.Accelerate                            ( DIM0, DIM1, DIM2, (:.)(..) )
 import           Data.Array.Accelerate.Analysis.Match
 import           Data.Array.Accelerate.Array.Sugar hiding (dim, Split)
@@ -135,18 +160,19 @@ dosplit _dimid arr = return (arr1, arr2)
     --               f x               = A.lift $ (A.indexTail x) A.:. ((A.indexHead x) + start)
     --           in A.backpermute bsh f arr
 
--- doConcat
 
+doConcat :: t
+doConcat = undefined
 
 askTuner :: [Int] -> TuneM Int
 askTuner ls = return $ head ls
 
-matchArrayShape
+_matchArrayShape
     :: forall acc aenv sh sh' e. (Shape sh, Shape sh')
     => {- dummy -} acc aenv (Array sh e)
     -> {- dummy -} sh'
     -> Maybe (sh :=: sh')
-matchArrayShape _ _
+_matchArrayShape _ _
   | Just REFL <- matchTupleType (eltType (undefined::sh)) (eltType (undefined::sh'))
   = gcast REFL
 
@@ -166,12 +192,12 @@ matchShape _ _
   | otherwise
   = Nothing
 
-matchSlice --- ?????
+_matchSlice --- ?????
   :: forall sh sh'. (Slice sh, Slice sh')
   => sh
   -> sh'
   -> Maybe (sh :=: sh')
-matchSlice _ _
+_matchSlice _ _
   | Just REFL <- matchTupleType (eltType (undefined::sh))
                                 (eltType (undefined::sh'))
   = gcast REFL
@@ -368,14 +394,14 @@ adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
 ----------------------------------------
 
 -- The problem with this is that it leads to inaccessible code errors:
-caseSlice :: forall ix b . A.Slice ix =>
+_caseSlice :: forall ix b . A.Slice ix =>
              A.Exp ix
           -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => () -> b)
           -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => () -> b)
           -> ((ix ~ A.Z)   => () -> b)
           -> ((ix ~ A.All) => () -> b)
           -> b
-caseSlice = error "caseSlice - Trevor can probably figure out how to implement this"
+_caseSlice = error "caseSlice - Trevor can probably figure out how to implement this"
 
 caseSliceFixed :: forall ix b . A.Slice ix
                => A.Exp ix
@@ -441,9 +467,9 @@ generate0 :: (Elt a) => A.Exp Z -> (A.Exp Z -> A.Exp a) -> Acc (Array Z a)
 generate0 e f = MkAcc $ \_numSplits -> return $
   Concat 0 [ A.generate e f ]
 
-generateSplit :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
+generate :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
               -> (Acc (Array ix a))
-generateSplit sh f
+generate sh f
     | Just REFL <- matchShape (undefined :: Z)      (undefined :: ix) = generate0 sh f
     | Just REFL <- matchShape (undefined :: A.DIM1) (undefined :: ix) = generate1 sh f
     | Just REFL <- matchShape (undefined :: A.DIM2) (undefined :: ix) = generate1 sh f
@@ -592,7 +618,7 @@ fold f a arr
 
 --------------------------------------------------------------------------------
 
--- Transpose is currently not fissioned:
+-- FIXME: Transpose is currently not fissioned:
 transpose :: Elt e => Acc (Array DIM2 e) -> Acc (Array DIM2 e)
 transpose (MkAcc fn) = MkAcc $ \_numSplits ->
   -- Here we tell the upstream to give us one chunk:
@@ -603,6 +629,8 @@ transpose (MkAcc fn) = MkAcc $ \_numSplits ->
        -- Policy choice.  We could throw away the split, or maintain it:
        (Split 0 arr)    -> return $ Split 1  (A.transpose arr)
        (Split 1 arr)    -> return $ Split 0  (A.transpose arr)
+
+--------------------------------------------------------------------------------
 
 zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
           (A.Exp a -> A.Exp b -> A.Exp c)
@@ -675,8 +703,9 @@ sfoldl :: forall sh a b. (Shape sh, Slice sh, Elt a, Elt b)
 sfoldl = undefined
 -}
 
+--------------------------------------------------------------------------------
 -- TESTS
--- -----
+--------------------------------------------------------------------------------
 --
 -- TODO: Move me somewhere appropriate
 --
@@ -694,12 +723,11 @@ ac1 = runTune2 $ combine $ Data.Array.Accelerate.Fission.map (+ 1) arr0
 
 ac2 :: IO (A.Acc (Array (DIM0 :. Int) Double))
 ac2 = runTune2 $ let a = Data.Array.Accelerate.Fission.map (+ 1) arr0
-                 in combine $ Data.Array.Accelerate.Fission.zipWith (+) a a
+                 in combine $ zipWith (+) a a
 
 ac3 :: IO (A.Acc (Array DIM2 Double))
 ac3 = runTune2 $ combine $
-      Data.Array.Accelerate.Fission.replicate
-        (A.constant (Z :. (3::Int) :. All)) arr0
+      replicate (A.constant (Z :. (3::Int) :. All)) arr0
 
 
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }

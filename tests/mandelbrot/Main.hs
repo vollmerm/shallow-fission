@@ -76,11 +76,11 @@ mandelbrot
     -> Acc (Scalar (View a))
     -> (F.Acc (Array DIM2 Int32))
 mandelbrot screenX screenY depth view =
-  F.generateSplit (constant (Z:.screenY:.screenX))
-       (\ix -> let c = initial ix
-               in  A.snd $ A.while (\zi -> A.snd zi A.<* lIMIT &&* dot (A.fst zi) A.<* 4)
-                       (\zi -> lift1 (next c) zi)
-                       (lift (c, constant 0)))
+  F.generate (constant (Z:.screenY:.screenX))
+     (\ix -> let c = initial ix
+             in  A.snd $ A.while (\zi -> A.snd zi A.<* lIMIT &&* dot (A.fst zi) A.<* 4)
+                     (\zi -> lift1 (next c) zi)
+                     (lift (c, constant 0)))
   where
     -- The view plane
     (xmin,ymin,xmax,ymax)     = unlift (the view)
