@@ -428,10 +428,9 @@ splitExtruded orig =
                 sliceSnoc hd sl2))
        (error "splitExtruded: impossible")
 
-
-sliceSnoc :: A.Exp a -> A.Exp sh -> A.Exp (sh :. a)
-sliceSnoc = undefined
-
+sliceSnoc :: forall sh a . (Slice sh, Elt a) =>
+             A.Exp a -> A.Exp sh -> A.Exp (sh :. a)
+sliceSnoc ea esh = A.lift (esh :. ea)
 
 -- Trash to garbage collect
 --------------------------------------------------------------------------------
