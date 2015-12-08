@@ -13,9 +13,9 @@ import           Data.Array.Accelerate                   ((:.) (..), DIM1, Elt,
 import qualified Data.Array.Accelerate                   as A
 import qualified Data.Array.Accelerate.Array.Sugar       as S
 #ifdef FISSION
-import           Data.Array.Accelerate.Fission           as F
-#elseif
-import           Data.Array.Accelerate                   as F
+import           Data.Array.Accelerate.Fission
+#else
+import           Data.Array.Accelerate
 #endif
 import           Data.Array.Accelerate.System.Random.MWC
 #ifdef ACCELERATE_CUDA_BACKEND
@@ -25,7 +25,7 @@ import qualified Data.Array.Accelerate.Interpreter       as B
 #endif
 
 import           Prelude                                 as P hiding (concat,
-                                                               map)
+                                                               map, zipWith)
 -- import qualified System.Random.MWC                       as R
 
 #ifdef FISSION
@@ -83,7 +83,7 @@ main = do
           advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bods
   --
   defaultMain
-    [ bgroup "nbody" [ bench ("n = " ++ show n) $ whnf step bodies
+    [ bgroup "nbody" [ bench ("n = " P.++ show n) $ whnf step bodies
                      ]
     ]
 
@@ -94,15 +94,15 @@ main = do
 --   This maps a _sequential_ reduction to get the total contribution for this
 --   body from all other bodies in the system.
 --
-calcAccels :: Exp R -> A.Acc (Vector PointMass) -> F.Acc (Vector PointMass)
-           -> (F.Acc (Vector Accel))
+calcAccels :: Exp R -> A.Acc (Vector PointMass) -> Acc (Vector PointMass)
+           -> (Acc (Vector Accel))
 calcAccels epsilon abodies bodies
   = let move body       = A.sfoldl (\acc next -> acc .+. accel epsilon body next)
                                    (vec 0)
                                    (constant Z)
                                    abodies -- Is this correct?
     in
-    F.map move bodies
+    map move bodies
 
 accel   :: Exp R                -- ^ Smoothing parameter
         -> Exp PointMass        -- ^ The point being accelerated
@@ -332,13 +332,18 @@ advanceBodies
     -> (Acc (Vector Body))
 advanceBodies calcFn timeStep bodies =
   let pmbodies  = A.map pointMassOfBody bodies
+#ifdef FISSION
       pmbodies' = liftAcc pmbodies
       bodies'   = liftAcc bodies
+#else
+      pmbodies' = pmbodies
+      bodies'   = bodies
+#endif
       accels    = calcFn pmbodies pmbodies'
       advance b a = let m = massOfPointMass (pointMassOfBody b)
                         a' = m *. a
                     in advanceBody (the timeStep) (setAccelOfBody a' b)
-  in F.zipWith advance bodies' accels
+  in zipWith advance bodies' accels
 
   -- = let
   --       -- Calculate the accelerations on each body.
@@ -390,7 +395,7 @@ disc (originX, originY, originZ) radiusMax ix gen
 -- | A point cloud with areas of high and low density
 --
 cloud :: (Int,Int) -> R -> DIM1 :~> Position
-cloud (fromIntegral -> sizeX, fromIntegral -> sizeY) radiusMax ix gen
+cloud (P.fromIntegral -> sizeX, P.fromIntegral -> sizeY) radiusMax ix gen
   = let
         blob (sx,sy,sz) r
           = disc (sx * sizeX, sy * sizeY, sz * (sizeX `min` sizeY))
