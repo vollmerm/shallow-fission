@@ -17,6 +17,7 @@ library
   default-language:    Haskell2010
   exposed-modules:
         Data.Array.Accelerate.Fission
+        Data.Split
 
   build-depends:
           base                  >= 4.7
