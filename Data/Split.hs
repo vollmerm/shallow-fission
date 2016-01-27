@@ -55,3 +55,8 @@ mkSplit d1 rep =
           | d1 == d2 -> rep
           | otherwise -> error "mkSplit/unfinished"
       (Split _ ar) -> Split d1 ar
+
+mkCompute :: Rep b a -> Rep b a
+mkCompute (Compute rep) = Compute rep
+mkCompute rep = Compute rep
+
