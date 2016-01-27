@@ -26,10 +26,10 @@ data Rep b a = Concat SplitBy [a]
              -- | IfDevice b (Rep b a) (Rep b a)
              -- etc
 
-instance (Show b, Show a) => Show (Rep b a) where
-    show (Concat s as) = undefined
-    show (Split  s a ) = undefined
-    show (Compute r  ) = undefined
+-- instance (Show b, Show a) => Show (Rep b a) where
+--     show (Concat s as) = undefined
+--     show (Split  s a ) = undefined
+--     show (Compute r  ) = undefined
 
 
 mkConcat :: SplitBy -> Rep b a -> Rep b a -> Rep b a

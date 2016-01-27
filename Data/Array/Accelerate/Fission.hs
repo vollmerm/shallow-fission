@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -55,9 +56,9 @@ import qualified Data.Array.Accelerate.Interpreter      as B -- For testing.
 #endif
 import           Debug.Trace
 import qualified Data.Array.Accelerate.Array.Representation as R
+import Data.Split
 
-
-type TuneM a = ReaderT [(String,Int)] IO a
+--type TuneM a = ReaderT [(String,Int)] IO a
 
 runTune2 :: TuneM a -> IO a
 runTune2 f = runReaderT f [("split",2)]
@@ -66,10 +67,18 @@ runTune2 f = runReaderT f [("split",2)]
 -- Shallow Language of fissionable computations
 --------------------------------------------------------------------------------
 
-newtype Acc a = MkAcc (NumSplits -> TuneM (Rep a))
+--newtype Acc a = MkAcc (NumSplits -> TuneM (Rep a))
 --  deriving Show
 
-type NumSplits = Int
+data Devs = Dev1 | Dev2
+          deriving Show
+
+type Acc a = Wrap (A.Acc a) Devs
+
+mkacc :: (NumSplits -> TuneM (Rep Devs (A.Acc a))) -> Acc a
+mkacc = MkWrap
+    
+--type NumSplits = Int
 
 -- | The language of multi-device computations.
 --
@@ -77,13 +86,14 @@ type NumSplits = Int
 -- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
 --
 -- Concatenation alway flattens any structure and goes back to a single chunk.
-data Rep a = Concat DimId [A.Acc a]
-           | Split  DimId (A.Acc a)
-           -- device selection?  what else
+--data Rep a = Concat DimId [A.Acc a]
+--           | Split  DimId (A.Acc a)
+--           -- device selection?  what else
 
-type DimId = Int
+--type DimId = Int
+type DimId = SplitBy
 
-instance A.Arrays a => Show (Rep a) where
+instance (Show b, Show a, A.Arrays a) => Show (Rep b (A.Acc a)) where
   show (Concat d ls) =
       "(Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
                          unlines [ show x | x <- ls ]++")"
@@ -94,36 +104,36 @@ instance A.Arrays a => Show (Rep a) where
 -- Smart constructors:
 ----------------------------------------
 
-mkConcat :: DimId -> Rep a -> Rep a -> (Rep a)
-mkConcat d3 x y =
- case (x,y) of
-   ((Concat d1 ls1),(Concat d2 ls2))
-     | d1 == d2 && d1 == d3  -> Concat d3 (ls1 ++ ls2)
+-- mkConcat :: DimId -> Rep a -> Rep a -> (Rep a)
+-- mkConcat d3 x y =
+--  case (x,y) of
+--    ((Concat d1 ls1),(Concat d2 ls2))
+--      | d1 == d2 && d1 == d3  -> Concat d3 (ls1 ++ ls2)
 
-   -- In the remaining cases, Splits get eaten by concats:
-   ((Split _ a),(Split _ b)) -> Concat d3 [a,b]
-   ((Concat d1 as),(Split _ b))
-     | d1 == d3 -> Concat d3 (as ++ [b])
-   ((Split _ a),(Concat d1 bs))
-     | d1 == d3 -> Concat d3 (a : bs)
+--    -- In the remaining cases, Splits get eaten by concats:
+--    ((Split _ a),(Split _ b)) -> Concat d3 [a,b]
+--    ((Concat d1 as),(Split _ b))
+--      | d1 == d3 -> Concat d3 (as ++ [b])
+--    ((Split _ a),(Concat d1 bs))
+--      | d1 == d3 -> Concat d3 (a : bs)
 
-   -- TODO: if forced into a corner we can just go ahead and create a
-   -- manifest concat node with an `A.generate`:
-   _ -> error "mkConcat: Brain explodes for now..."
+--    -- TODO: if forced into a corner we can just go ahead and create a
+--    -- manifest concat node with an `A.generate`:
+--    _ -> error "mkConcat: Brain explodes for now..."
 
-mkSplit :: DimId -> Rep a -> Rep a
-mkSplit d1 rep =
-  case rep of
-    -- This is potentially a tuning decision.  Who gets precedence?
-    --
-    -- If it's already split apart, but not in the dimension we want,
-    -- do we really want to create a concattenation kernel to
-    -- (potentially) manifest the data?
-    (Concat d2 _ls)
-      | d1 == d2  -> rep
-      | otherwise -> error "mkSplit/unfinished: use generate to reorganize the concat along a different dim"
-    -- Well, we don't have to undo a split that was deferred:
-    (Split _ ar)  -> Split d1 ar
+-- mkSplit :: DimId -> Rep a -> Rep a
+-- mkSplit d1 rep =
+--   case rep of
+--     -- This is potentially a tuning decision.  Who gets precedence?
+--     --
+--     -- If it's already split apart, but not in the dimension we want,
+--     -- do we really want to create a concattenation kernel to
+--     -- (potentially) manifest the data?
+--     (Concat d2 _ls)
+--       | d1 == d2  -> rep
+--       | otherwise -> error "mkSplit/unfinished: use generate to reorganize the concat along a different dim"
+--     -- Well, we don't have to undo a split that was deferred:
+--     (Split _ ar)  -> Split d1 ar
 
 ----------------------------------------
 
@@ -211,8 +221,8 @@ _matchSlice _ _
   = Nothing
 
 -- FIXME: This should probably introduce a split node.
-liftAcc :: A.Acc a -> Acc a
-liftAcc a = MkAcc $ \_ -> return $ Concat 0 [a]
+--liftAcc :: A.Acc a -> Acc a
+liftAcc a = mkacc $ \_ -> return $ Concat 0 [a]
 
 --------------------------------------------------------------------------------
 -- RUNNING
@@ -222,7 +232,7 @@ go1 :: (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array (sh :. Int) a)
     -> Array (sh :. Int) a
-go1 exec (MkAcc fn) =
+go1 exec (MkWrap fn) =
   unsafePerformIO $
    do rep <- runTune2 $ fn 2
       putStrLn ("Fission/RUN1: shallow-language term:\n" ++ show rep)
@@ -236,7 +246,7 @@ go0 :: (Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
     -> Acc (Array sh a)
     -> Array sh a
-go0 exec (MkAcc fn) =
+go0 exec (MkWrap fn) =
   unsafePerformIO $
   do rep <- runTune2 $ fn 2
      putStrLn ("Fission/RUN0: shallow-language term:\n" ++ show rep)
@@ -271,7 +281,7 @@ map1n :: (Slice ix, Shape ix, Elt a, Elt b)
       -> Acc (Array (ix :. Int) a)
       -> Int
       -> Acc (Array (ix :. Int) b)
-map1n f (MkAcc m) n = MkAcc $ \numSplits ->
+map1n f (MkWrap m) n = mkacc $ \numSplits ->
     do (Concat d ls) <- m numSplits
        case ls of
          [] -> error "Nothing to do."
@@ -288,7 +298,7 @@ map1n f (MkAcc m) n = MkAcc $ \numSplits ->
 
 map0 :: (Shape ix, Elt a, Elt b) =>
         (A.Exp a -> A.Exp b) -> Acc (Array ix a) -> Acc (Array ix b)
-map0 f (MkAcc m) = MkAcc $ \numSplits ->
+map0 f (MkWrap m) = mkacc $ \numSplits ->
   do Concat d as <- m numSplits
      -- Here we don't change the chunking of what comes back:
      let as' = P.map (A.map f) as
@@ -335,7 +345,7 @@ replicate :: forall slix e . (Slice slix, Elt e)
           -> Acc (Array (SliceShape slix) e)
           -> Acc (Array (FullShape slix) e)
 
-replicate e (MkAcc fn) = MkAcc $ \numSplits ->
+replicate e (MkWrap fn) = mkacc $ \numSplits ->
   -- TODO: Need a new policy here for how to split.
   do res <- fn numSplits
      case res of
@@ -474,7 +484,7 @@ sliceSnoc ea esh = A.lift (esh :. ea)
 
 generate0 :: (Elt a) => A.Exp Z -> (A.Exp Z -> A.Exp a) -> Acc (Array Z a)
 -- Cannot meaningfully split zero dim:
-generate0 e f = MkAcc $ \_numSplits -> return $
+generate0 e f = MkWrap $ \_numSplits -> return $
   Concat 0 [ A.generate e f ]
 
 generate :: forall ix a. (Shape ix, Elt a, Slice ix) => A.Exp ix -> (A.Exp ix -> A.Exp a)
@@ -492,7 +502,7 @@ generate1 :: (Shape ix, Elt a, Slice ix) => A.Exp (ix A.:. Int) -> (A.Exp (ix A.
 -- granularity.  The alternative would be to include Generate
 -- expliticly in Rep, in which case optimizing `(Split . Generate)`
 -- would be trivial.
-generate1 sh f = MkAcc $ \numSplits ->
+generate1 sh f = MkWrap $ \numSplits ->
   if numSplits == 1
    then return $ Concat 0 [A.generate sh f]
    else
@@ -546,7 +556,7 @@ foldn :: (Slice ix, Shape ix, Elt a) =>
       -> Acc (Array (ix :. Int) a)
       -> Int
       -> (Acc (Array ix a))
-foldn f i (MkAcc fn) dims = MkAcc $ \numSplits ->
+foldn f i (MkWrap fn) dims = mkacc $ \numSplits ->
   do inputs <- fn numSplits
      case inputs of
        (Concat _ [])     -> error "Nothing to do"
@@ -630,7 +640,7 @@ fold f a arr
 
 -- FIXME: Transpose is currently not fissioned:
 transpose :: Elt e => Acc (Array DIM2 e) -> Acc (Array DIM2 e)
-transpose (MkAcc fn) = MkAcc $ \_numSplits ->
+transpose (MkWrap fn) = mkacc $ \_numSplits ->
   -- Here we tell the upstream to give us one chunk:
   do inp <- fn 1
      case inp of
@@ -647,7 +657,7 @@ zipWith  :: (Slice sh, Shape sh, Elt a, Elt b, Elt c) =>
           -> Acc (Array (sh :. Int) a)
           -> Acc (Array (sh :. Int) b)
           -> Acc (Array (sh :. Int) c)
-zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
+zipWith f (MkWrap f1) (MkWrap f2) = mkacc $ \numSplits -> do
   Concat d1 x <- f1 numSplits
   Concat _d2 y <- f2 numSplits
   case (x,y) of
@@ -685,7 +695,7 @@ zipWith f (MkAcc f1) (MkAcc f2) = MkAcc $ \numSplits -> do
 combine :: (Slice sh, Shape sh, Elt e) =>
            Acc (Array (sh :. Int) e)
         -> TuneM (A.Acc (Array (sh :. Int) e))
-combine (MkAcc fn) =
+combine (MkWrap fn) =
   trace ("FYI: CALLING Fission.combine") $
   do res <- fn 2
      lift $ do hPutStrLn stderr (L.replicate 80 '=')
