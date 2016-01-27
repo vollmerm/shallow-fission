@@ -19,6 +19,12 @@ newtype Wrap a b = MkWrap (NumSplits -> TuneM (Rep b a))
 -- Shallow Language of fissionable computations
 --------------------------------------------------------------------------------
 
+-- | The language of multi-device computations.
+--
+-- The chunked nature of a computation does not affect its type.
+-- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
+--
+-- Concatenation flattens any structure and goes back to a single chunk.
 data Rep b a = Concat SplitBy [a]
              | Split  SplitBy a
              | Compute (Rep b a)
@@ -26,11 +32,10 @@ data Rep b a = Concat SplitBy [a]
              -- | IfDevice b (Rep b a) (Rep b a)
              -- etc
 
--- instance (Show b, Show a) => Show (Rep b a) where
---     show (Concat s as) = undefined
---     show (Split  s a ) = undefined
---     show (Compute r  ) = undefined
 
+----------------------------------------
+-- Smart constructors:
+----------------------------------------
 
 mkConcat :: SplitBy -> Rep b a -> Rep b a -> Rep b a
 mkConcat d3 x y =

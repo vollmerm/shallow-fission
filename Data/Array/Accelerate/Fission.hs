@@ -58,17 +58,8 @@ import           Debug.Trace
 import qualified Data.Array.Accelerate.Array.Representation as R
 import Data.Split
 
---type TuneM a = ReaderT [(String,Int)] IO a
-
 runTune2 :: TuneM a -> IO a
 runTune2 f = runReaderT f [("split",2)]
-
---------------------------------------------------------------------------------
--- Shallow Language of fissionable computations
---------------------------------------------------------------------------------
-
---newtype Acc a = MkAcc (NumSplits -> TuneM (Rep a))
---  deriving Show
 
 data Devs = Dev1 | Dev2
           deriving Show
@@ -78,19 +69,6 @@ type Acc a = Wrap (A.Acc a) Devs
 mkacc :: (NumSplits -> TuneM (Rep Devs (A.Acc a))) -> Acc a
 mkacc = MkWrap
     
---type NumSplits = Int
-
--- | The language of multi-device computations.
---
--- The chunked nature of a computation does not affect its type.
--- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
---
--- Concatenation alway flattens any structure and goes back to a single chunk.
---data Rep a = Concat DimId [A.Acc a]
---           | Split  DimId (A.Acc a)
---           -- device selection?  what else
-
---type DimId = Int
 type DimId = SplitBy
 
 instance (Show b, Show a, A.Arrays a) => Show (Rep b (A.Acc a)) where
@@ -99,44 +77,6 @@ instance (Show b, Show a, A.Arrays a) => Show (Rep b (A.Acc a)) where
                          unlines [ show x | x <- ls ]++")"
   show (Split d a) =
      "(Split along dim "++show d++ " of "++ show a++")"
-
-----------------------------------------
--- Smart constructors:
-----------------------------------------
-
--- mkConcat :: DimId -> Rep a -> Rep a -> (Rep a)
--- mkConcat d3 x y =
---  case (x,y) of
---    ((Concat d1 ls1),(Concat d2 ls2))
---      | d1 == d2 && d1 == d3  -> Concat d3 (ls1 ++ ls2)
-
---    -- In the remaining cases, Splits get eaten by concats:
---    ((Split _ a),(Split _ b)) -> Concat d3 [a,b]
---    ((Concat d1 as),(Split _ b))
---      | d1 == d3 -> Concat d3 (as ++ [b])
---    ((Split _ a),(Concat d1 bs))
---      | d1 == d3 -> Concat d3 (a : bs)
-
---    -- TODO: if forced into a corner we can just go ahead and create a
---    -- manifest concat node with an `A.generate`:
---    _ -> error "mkConcat: Brain explodes for now..."
-
--- mkSplit :: DimId -> Rep a -> Rep a
--- mkSplit d1 rep =
---   case rep of
---     -- This is potentially a tuning decision.  Who gets precedence?
---     --
---     -- If it's already split apart, but not in the dimension we want,
---     -- do we really want to create a concattenation kernel to
---     -- (potentially) manifest the data?
---     (Concat d2 _ls)
---       | d1 == d2  -> rep
---       | otherwise -> error "mkSplit/unfinished: use generate to reorganize the concat along a different dim"
---     -- Well, we don't have to undo a split that was deferred:
---     (Split _ ar)  -> Split d1 ar
-
-----------------------------------------
-
 
 --------------------------------------------------------------------------------
 -- Utilities
