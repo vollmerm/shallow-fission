@@ -11,9 +11,8 @@ import           System.IO            (hPutStrLn, stderr)
 type TuneM a = ReaderT [(String,Int)] IO a
 
 type NumSplits = Int
-type SplitBy   = Int
 
-newtype Wrap a b = MkWrap (NumSplits -> TuneM (Rep b a))
+newtype Wrap a b c = MkWrap (NumSplits -> TuneM (Rep b c a))
 
 --------------------------------------------------------------------------------
 -- Shallow Language of fissionable computations
@@ -25,19 +24,17 @@ newtype Wrap a b = MkWrap (NumSplits -> TuneM (Rep b a))
 -- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
 --
 -- Concatenation flattens any structure and goes back to a single chunk.
-data Rep b a = Concat SplitBy [a]
-             | Split  SplitBy a
-             | Compute (Rep b a)
-             -- Device selection (?)
-             -- | IfDevice b (Rep b a) (Rep b a)
-             -- etc
+data Rep b c a = Concat c [a]
+               | Split  c a
+               | Compute (Rep b c a)
+               | IfDevice b (Rep b c a) (Rep b c a)
 
 
 ----------------------------------------
 -- Smart constructors:
 ----------------------------------------
 
-mkConcat :: SplitBy -> Rep b a -> Rep b a -> Rep b a
+mkConcat :: (Ord c) => c -> Rep b c a -> Rep b c a -> Rep b c a
 mkConcat d3 x y =
     case (x,y) of
       ((Concat d1 ls1),(Concat d2 ls2))
@@ -53,7 +50,7 @@ mkConcat d3 x y =
       _ -> error "mkConcat: Brain explodes for now..."
 
 
-mkSplit :: SplitBy -> Rep b a -> Rep b a
+mkSplit :: (Ord c) => c -> Rep b c a -> Rep b c a
 mkSplit d1 rep =
     case rep of
       (Concat d2 _ls)
@@ -61,7 +58,7 @@ mkSplit d1 rep =
           | otherwise -> error "mkSplit/unfinished"
       (Split _ ar) -> Split d1 ar
 
-mkCompute :: Rep b a -> Rep b a
+mkCompute :: Rep b c a -> Rep b c a
 mkCompute (Compute rep) = Compute rep
 mkCompute rep = Compute rep
 

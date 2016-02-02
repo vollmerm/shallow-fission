@@ -64,14 +64,15 @@ runTune2 f = runReaderT f [("split",2)]
 data Devs = Dev1 | Dev2
           deriving Show
 
-type Acc a = Wrap (A.Acc a) Devs
+type Acc a = Wrap (A.Acc a) Devs SplitBy
 
-mkacc :: (NumSplits -> TuneM (Rep Devs (A.Acc a))) -> Acc a
+mkacc :: (NumSplits -> TuneM (Rep Devs SplitBy (A.Acc a))) -> Acc a
 mkacc = MkWrap
-    
+
+type SplitBy = Int
 type DimId = SplitBy
 
-instance (Show b, Show a, A.Arrays a) => Show (Rep b (A.Acc a)) where
+instance (Show b, Show a, A.Arrays a) => Show (Rep b Int (A.Acc a)) where
   show (Concat d ls) =
       "(Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
                          unlines [ show x | x <- ls ]++")"
