@@ -112,5 +112,17 @@ executable fission-matrix-multiply
         , shallow-fission       == 0.1.0.0
         , criterion
 
+test-suite test
+  default-language:     Haskell2010
+  main-is:              Test.hs
+  type:                 exitcode-stdio-1.0
+  hs-source-dirs:       tests
+  build-depends:
+          base                  >= 4.7
+        , accelerate            >= 2.0
+        , shallow-fission       == 0.1.0.0
+        , Cabal >= 1.9.2
+  ghc-options: -threaded
+
 
 -- vim: nospell

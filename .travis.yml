@@ -53,6 +53,7 @@ install:
 
 script:
   - stack build
+  - stack test
   # - stack haddock
 
 notifications:
