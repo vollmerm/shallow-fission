@@ -56,7 +56,10 @@ import qualified Data.Array.Accelerate.Interpreter      as B -- For testing.
 #endif
 import           Debug.Trace
 import qualified Data.Array.Accelerate.Array.Representation as R
-import Data.Split
+import           Data.Split
+import           Numeric.Natural
+    
+type TuneM a = ReaderT [(String,Int)] IO a
 
 runTune2 :: TuneM a -> IO a
 runTune2 f = runReaderT f [("split",2)]
@@ -64,9 +67,9 @@ runTune2 f = runReaderT f [("split",2)]
 data Devs = Dev1 | Dev2
           deriving Show
 
-type Acc a = Wrap (A.Acc a) Devs SplitBy
+type Acc a = Wrap Devs SplitBy (A.Acc a) (ReaderT [(String,Int)] IO)
 
-mkacc :: (NumSplits -> TuneM (Rep Devs SplitBy (A.Acc a))) -> Acc a
+mkacc :: (Natural -> TuneM (Rep Devs SplitBy (A.Acc a))) -> Acc a
 mkacc = MkWrap
 
 type SplitBy = Int

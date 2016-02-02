@@ -1,34 +1,28 @@
+{-# LANGUAGE DeriveFunctor #-}
 module Data.Split where
 
 import           Control.Monad
 import           Control.Monad.Reader
 import qualified Data.List            as L
+import           Numeric.Natural
 import           Prelude              hiding (concat, map, replicate, zipWith)
 import qualified Prelude              as P
 import           System.IO            (hPutStrLn, stderr)
-
-
-type TuneM a = ReaderT [(String,Int)] IO a
-
-type NumSplits = Int
-
-newtype Wrap a b c = MkWrap (NumSplits -> TuneM (Rep b c a))
 
 --------------------------------------------------------------------------------
 -- Shallow Language of fissionable computations
 --------------------------------------------------------------------------------
 
 -- | The language of multi-device computations.
---
--- The chunked nature of a computation does not affect its type.
--- Thus, for example, `Split (Split a)` is not a different type than `Split a`.
---
--- Concatenation flattens any structure and goes back to a single chunk.
-data Rep b c a = Concat c [a]
-               | Split  c a
-               | Compute (Rep b c a)
-               | IfDevice b (Rep b c a) (Rep b c a)
 
+data Rep b c a = Concat c [a]
+               | Split c a
+               | Compute a
+               | Branch b (Rep b c a) (Rep b c a)
+               | Unit a
+                 deriving Functor
+
+newtype Wrap b c a m = MkWrap (Natural -> m (Rep b c a))
 
 ----------------------------------------
 -- Smart constructors:
@@ -57,8 +51,12 @@ mkSplit d1 rep =
           | d1 == d2 -> rep
           | otherwise -> error "mkSplit/unfinished"
       (Split _ ar) -> Split d1 ar
+      (Compute ar) -> Split d1 ar
+      (Branch b a1 a2) -> Branch b (mkSplit d1 a1) (mkSplit d1 a2)
+      (Unit ar) -> Split d1 ar
 
 mkCompute :: Rep b c a -> Rep b c a
-mkCompute (Compute rep) = Compute rep
-mkCompute rep = Compute rep
-
+mkCompute x =
+    case x of
+      (Compute rep) -> Compute rep
+      _ -> x
