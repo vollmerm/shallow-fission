@@ -12,11 +12,12 @@ import           Data.Array.Accelerate                   ((:.) (..), DIM1, Elt,
                                                           lift, the, unlift)
 import qualified Data.Array.Accelerate                   as A
 import qualified Data.Array.Accelerate.Array.Sugar       as S
-#ifdef FISSION
 import           Data.Array.Accelerate.Fission
-#else
-import           Data.Array.Accelerate
-#endif
+-- #ifdef FISSION
+-- import           Data.Array.Accelerate.Fission
+-- #else
+-- import           Data.Array.Accelerate
+-- #endif
 import           Data.Array.Accelerate.System.Random.MWC
 #ifdef ACCELERATE_CUDA_BACKEND
 import qualified Data.Array.Accelerate.CUDA              as B
@@ -28,11 +29,11 @@ import           Prelude                                 as P hiding (concat,
                                                                map, zipWith)
 -- import qualified System.Random.MWC                       as R
 
-#ifdef FISSION
-localRun = F.run'
-#else
-localRun = B.run
-#endif
+-- #ifdef FISSION
+-- localRun = F.run'
+-- #else
+-- localRun = B.run
+-- #endif
 
 -- step = P.curry I.run
 --        $ A.uncurry $ advanceBodies (calcAccels $ constant epsilon)
@@ -59,33 +60,49 @@ localRun = B.run
 --        in
 --        advanceBodies (calcAccels (constant epsilon)) timeS (A.use bodies)
 
-
-main :: IO ()
-main = do
+test = do
   let epsilon           = 50
       startSpeed        = 1
-      n                 = 1000
+      n                 = 10 :: Int
       radius            = 500
       size              = 1000
       mass              = 40
       timeS             = A.use $ A.fromList Z [0.1]
-  --
   masses        <- randomArray (uniformR (1, mass))       (Z :. n)
   positions     <- randomArray (cloud (size,size) radius) (Z :. n)
-
   let bodies            = B.run
                         $ A.map (setStartVelOfBody . constant $ startSpeed)
                         $ A.zipWith setMassOfBody (A.use masses)
                         $ A.map unitBody (A.use positions)
+  return $ advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bodies
 
-      step bods = do
-        localRun $
-          advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bods
-  --
-  defaultMain
-    [ bgroup "nbody" [ bench ("n = " P.++ show n) $ whnf step bodies
-                     ]
-    ]
+main :: IO ()
+main = undefined
+-- main = do
+--   let epsilon           = 50
+--       startSpeed        = 1
+--       n                 = 1000
+--       radius            = 500
+--       size              = 1000
+--       mass              = 40
+--       timeS             = A.use $ A.fromList Z [0.1]
+--   --
+--   masses        <- randomArray (uniformR (1, mass))       (Z :. n)
+--   positions     <- randomArray (cloud (size,size) radius) (Z :. n)
+
+--   let bodies            = B.run
+--                         $ A.map (setStartVelOfBody . constant $ startSpeed)
+--                         $ A.zipWith setMassOfBody (A.use masses)
+--                         $ A.map unitBody (A.use positions)
+
+--       step bods = do
+--         localRun $
+--           advanceBodies (calcAccels (constant epsilon)) timeS $ A.use bods
+--   --
+--   defaultMain
+--     [ bgroup "nbody" [ bench ("n = " P.++ show n) $ whnf step bodies
+--                      ]
+--     ]
 
 
 
@@ -332,13 +349,8 @@ advanceBodies
     -> (Acc (Vector Body))
 advanceBodies calcFn timeStep bodies =
   let pmbodies  = A.map pointMassOfBody bodies
-#ifdef FISSION
       pmbodies' = liftAcc pmbodies
       bodies'   = liftAcc bodies
-#else
-      pmbodies' = pmbodies
-      bodies'   = bodies
-#endif
       accels    = calcFn pmbodies pmbodies'
       advance b a = let m = massOfPointMass (pointMassOfBody b)
                         a' = m *. a

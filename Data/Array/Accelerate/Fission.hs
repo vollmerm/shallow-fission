@@ -31,6 +31,7 @@ module Data.Array.Accelerate.Fission
        -- * Temporary tests:
        , arr0, ac1, ac2, ac3
        , run', run -- TODO: replace this with a run-builder parameterized over backends.
+       , multiRun
        )
        where
 
@@ -215,6 +216,42 @@ run' :: forall sh a.
         (Elt a, Slice sh, Shape sh) =>
         Acc (Array sh a) -> Array sh a
 run' arrs = run B.run arrs
+
+multiRun :: forall sh a. (Elt a, Slice sh, Shape sh) =>
+            (forall arrs. Arrays arrs => A.Acc arrs -> arrs) ->
+            Acc (Array sh a) -> Array sh a
+multiRun exec arrs
+    | Just REFL <- matchShape (undefined :: DIM0) (undefined :: sh) = run0 exec arrs
+    | Just REFL <- matchShape (undefined :: DIM1) (undefined :: sh) = run1 exec arrs
+    | Just REFL <- matchShape (undefined :: DIM2) (undefined :: sh) = run1 exec arrs
+    | otherwise                                                     = run0 exec arrs
+    where run0 :: forall sh a. (Shape sh, Elt a) =>
+                  (forall arrs. Arrays arrs => A.Acc arrs -> arrs) ->
+                  Acc (Array sh a) -> Array sh a
+          run0 exec (MkWrap fn) =
+              unsafePerformIO $
+              do rep <- runTune2 $ fn 2
+                 putStrLn ("Fission/RUN0: shallow-language term:\n" ++ show rep)
+                 case rep of
+                   (Concat _ arrs)
+                       | null arrs   -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
+                       | [a] <- arrs -> return $! exec a
+                       | otherwise   -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
+
+          run1 :: forall sh a. (Slice sh, Shape sh, Elt a) =>
+                  (forall arrs. Arrays arrs => A.Acc arrs -> arrs) ->
+                  Acc (Array (sh :. Int) a) -> Array (sh :. Int) a
+          run1 exec (MkWrap fn) = 
+              unsafePerformIO $
+              do rep <- runTune2 $ fn 2
+                 putStrLn ("Fission/RUN0: shallow-language term:\n" ++ show rep)
+                 case rep of
+                   (Concat dim arrs)
+                       | null arrs   -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
+                       | dim /= 0    -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
+                       | otherwise   -> return $! foldr1 undefined $ P.map exec arrs --exec $ foldr1 (A.++) arrs
+
+
 
 --------------------------------------------------------------------------------
 -- Wrappers for Core Accelerate operations
@@ -697,3 +734,18 @@ ac3 = runTune2 $ combine $
 -- a2' = do { a1' <- a1; a2' <- Fission1.map (* 2) a1'; return $ combine a2' }
 -- a3' = do { a2' <- a2; a3' <- Fission1.fold1 (+) a2'; return $ combine0 a3' }
 -- a4' = do { a1' <- a1; a2' <- a2; a4' <- Fission1.zipWith (+) a1' a2'; return $ combine a4' }
+
+-- λ> let arr1 = A.use $ A.fromList (Z :. 5 :. 5) [0.0..] :: A.Acc (Array A.DIM2 Float)
+-- λ> :set -XTypeOperators
+-- λ> let Z :. rowsA :. _ = A.unlift (A.shape arr1) :: Z :. A.Exp Int :. A.Exp Int
+-- λ> let Z :. _ :. colsA = A.unlift (A.shape arr1) :: Z :. A.Exp Int :. A.Exp Int
+-- λ> let tmp1 = replicate (A.lift $ Z :. All :. colsA :. All) $ liftAcc arr1
+-- λ> tmp1
+-- tmp1 :: Acc (Array (((Z :. Int) :. Int) :. Int) Float)
+-- λ> let tmp2 = replicate (A.lift $ Z :. rowsA :. All :. All) $ transpose (liftAcc arr1)
+-- λ> tmp2
+-- tmp2 :: Acc (Array (((Z :. Int) :. Int) :. Int) Float)
+-- λ> let tmp3 = zipWith (*) tmp1 tmp2
+-- λ> tmp3
+-- tmp3 :: Acc (Array (((Z :. Int) :. Int) :. Int) Float)
+-- λ> show tmp3
