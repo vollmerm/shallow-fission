@@ -4,19 +4,22 @@
 
 module Main where
 
-import           Control.Exception (evaluate)
+import           Control.Exception                  (evaluate)
 import           Criterion.Main
-import           Data.Array.Accelerate
-                  (Array,DIM2,lift,lift1,Z(Z),(:.)(..),the,indexArray,
-                   unlift,Exp,unindex2,IsFloating,constant,(&&*),Scalar,Acc,Elt)
-import qualified Data.Array.Accelerate as A
+import           Data.Array.Accelerate              ((:.) (..), Acc, Array,
+                                                     DIM2, Elt, Exp, IsFloating,
+                                                     Scalar, Z (Z), constant,
+                                                     indexArray, lift, lift1,
+                                                     the, unindex2, unlift,
+                                                     (&&*))
+import qualified Data.Array.Accelerate              as A
 import           Data.Array.Accelerate.Data.Complex
-import qualified Data.Array.Accelerate.Fission as F
+import qualified Data.Array.Accelerate.Fission      as F
 import           Data.Int
 import           Data.Word
-import           Prelude as P
+import           Prelude                            as P
 
-import           Data.Array.Accelerate.Interpreter as I
+import           Data.Array.Accelerate.Interpreter  as I
 
 
 test :: (F.Acc (Array DIM2 Int32))
@@ -37,12 +40,12 @@ main =
       view      = (-2.23, -1.15, 0.83, 1.15) :: View Float
       force arr = indexArray arr (Z:.0:.0) `seq` arr
       compute (sz,lmt) =
-        do tuned <- F.runTune2 $ F.combine $
+        let tuned = F.run' $ --F.runTune2 $ F.combine $
                     mandelbrot sz sz lmt $ A.use $ A.fromList Z [view]
-           evaluate $ force $ I.run tuned
+        in force $ tuned !! 0 -- $ I.run tuned
   in defaultMain
          [bgroup "Mandel" [ bench ("size = " P.++ (show size)) $
-                            whnfIO $ compute (size,limit)]]
+                            whnf compute (size,limit)]]
 
 
 
