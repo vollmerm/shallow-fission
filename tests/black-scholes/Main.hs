@@ -5,7 +5,7 @@
 
 module Main where
 
-import           Prelude                           as P
+import           Prelude                                 as P
 import           System.Environment
 
 import           Criterion.Main
@@ -13,7 +13,7 @@ import           Data.Array.Accelerate                   as A
 import qualified Data.Array.Accelerate.Fission           as F
 import           Data.Array.Accelerate.System.Random.MWC
 
-import           Data.Array.Accelerate.Interpreter as I
+import           Data.Array.Accelerate.Interpreter       as I
 
 
 main :: IO ()
@@ -21,26 +21,30 @@ main = do
   n' <- getEnv "N"
   b' <- getEnv "BACKEND"
   let n = read n' :: Int
-  r   <- options n
+  doBS n
+--  r   <- options n
   -- acc <- F.runTune2 $ blackscholes r
-  if b' == "multi"
-  then undefined
-  -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf I.runMulti acc
+  -- if b' == "multi"
+  -- then undefined
+  -- -- then defaultMain [ bgroup "Blackscholes" [ bench ("multi: n = " ++ (show n)) $ whnf I.runMulti acc
+  -- --                                          ]
+  -- --                  ]
+  -- else defaultMain [ bgroup "Blackscholes" [ bench ("normal: n = " P.++ (show n)) $ whnf blackscholes' r
   --                                          ]
   --                  ]
-  else defaultMain [ bgroup "Blackscholes" [ bench ("normal: n = " P.++ (show n)) $ whnf I.run (blackscholes' r)
-                                           ]
-                   ]
 
+doBS n = do r <- options n
+            r1 <- options (n `div` 2)
+            r2 <- options (n `div` 2)
+            putStrLn $ show $ blackscholes  (r1,r2)
+            putStrLn $ show $ blackscholes' r
 
-options :: Int -> IO (Acc (Vector (Float,Float,Float)))
-options n = A.use <$> randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
+options :: Int -> IO (Vector (Float,Float,Float))
+options n = randomArray (uniformR ((5,1,0.25),(30,100,10))) (Z :. n)
 
 blackscholes :: (Elt a, IsFloating a)
-             => Acc (Vector (a, a, a)) -> F.TuneM (Acc (Vector (a, a)))
-blackscholes arr = let arr' = F.liftAcc arr
-                       r    = F.map go arr'
-                   in F.combine r
+             => (Vector (a, a, a), (Vector (a, a, a))) -> [Vector (a, a)]
+blackscholes arrs = F.run' $ F.map go $ F.use arrs
   where
   go x =
     let (price, strike, years) = A.unlift x
@@ -58,8 +62,9 @@ blackscholes arr = let arr' = F.liftAcc arr
            , x_expRT * (1.0 - cndD2) - price * (1.0 - cndD1))
 
 
-blackscholes' :: (Elt a, IsFloating a) => Acc (Vector (a, a, a)) -> Acc (Vector (a, a))
-blackscholes' = A.map go
+blackscholes' :: (Elt a, IsFloating a) =>
+                 Vector (a, a, a) -> Vector (a, a)
+blackscholes' arr = I.run $ A.map go $ A.use arr
   where
   go x =
     let (price, strike, years) = A.unlift x
