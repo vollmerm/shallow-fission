@@ -155,7 +155,8 @@ zipWith f (MkWrap f1) (MkWrap f2) = MkWrap $ \numSplits exec -> do
 
 
 
-
+-- Fold will *explicitly* call the exec function (A.run) before
+-- zipWith'ing the two pieces together.
 foldn :: (Slice ix, Shape ix, Elt a) =>
          (A.Exp a -> A.Exp a -> A.Exp a)
       -> A.Exp a

@@ -18,6 +18,7 @@ module Data.Array.Accelerate.Fission.Runner
     , TuneM, runTune
     , run', run
     , use
+    , liftAcc
     )
     where
 
@@ -249,3 +250,8 @@ adjustDim _ R.SliceNil   = error "adjustDim: overran the dimensions."
 adjustDim d (R.SliceFixed r) = adjustDim d r
 adjustDim 0 (R.SliceAll _)   = 0
 adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
+
+
+-- FIXME: This should probably introduce a split node.
+--liftAcc :: A.Acc a -> Acc a
+liftAcc a = MkWrap $ \_ -> return $ Concat 0 [a]
