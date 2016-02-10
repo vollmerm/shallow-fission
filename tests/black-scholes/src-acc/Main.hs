@@ -3,6 +3,7 @@
 module Main where
 
 import BlackScholes
+
 import Data.Array.Accelerate                                        as A
 import Data.Array.Accelerate.Array.Data                             as A
 import Data.Array.Accelerate.CUDA                                   as CUDA

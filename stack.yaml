@@ -7,7 +7,7 @@ packages:
 - '.'
 - location:
     git:    https://github.com/tmcdonell/accelerate.git
-    commit: 8355b8c75d9ecc0fcabd34f003bd58ddde20af64
+    commit: b569a1cfbb5ea336495a2221ba82d35ea34daa72
   extra-dep: true
 
 - location:
@@ -31,6 +31,11 @@ packages:
   extra-dep: true
 
 - location:
+    git:    https://github.com/tmcdonell/accelerate-io.git
+    commit: 64eeb44d899a259ff2f6e325dfd107f004e5c4e2
+  extra-dep: true
+
+- location:
     git:    https://github.com/tmcdonell/cuda.git
     commit: bce7f414fd96f8841ae81aaa2151e2c7dc7e954e
   extra-dep: true
@@ -42,7 +47,6 @@ extra-deps:
 - llvm-general-pure-3.5.0.0
 - llvm-general-3.5.1.1
 - libffi-0.1
-- cuda-0.7.1.0
 
 # Override default flag values for local packages and extra-deps
 flags:
