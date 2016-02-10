@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ParallelListComp #-}
 
 module Main where
 
@@ -51,10 +51,10 @@ main = do
     registerForeignPtrAllocator (CUDA.mallocHostForeignPtr [])
 
   defaultMain
-    [ bgroup "cuda"      [ bench (show view) $ whnf (CUDA.run1  (render radius)) (fromList Z [view]) | (view,radius) <- table ]
-    , bgroup "acc-cpu"   [ bench (show view) $ whnf (CPU.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table ]
-    , bgroup "acc-ptx"   [ bench (show view) $ whnf (PTX.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table ]
-    , bgroup "acc-multi" [ bench (show view) $ whnf (Multi.run1 (render radius)) (fromList Z [view]) | (view,radius) <- table ]
+    [ bgroup "cuda"      [ bench (show n) $ whnf (CUDA.run1  (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "acc-cpu"   [ bench (show n) $ whnf (CPU.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "acc-ptx"   [ bench (show n) $ whnf (PTX.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "acc-multi" [ bench (show n) $ whnf (Multi.run1 (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
     ]
 
 
