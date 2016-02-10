@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -23,16 +22,17 @@ import Prelude                                                      as P
 import GHC.Conc
 
 
+maybeEnv :: Read a => String -> a -> IO a
+maybeEnv var def = do
+  ms <- lookupEnv var
+  case ms of
+    Just s | [(v,[])] <- reads s -> return v
+    _                            -> return def
+
 main :: IO ()
 main = do
-  n   <- flip fmap (lookupEnv "N") $ \case
-           Just s | [(v,[])] <- reads s -> v
-           _                            -> 20000000
-
-  pin <- flip fmap (lookupEnv "PINNED") $ \case
-           Just []                      -> True
-           Just s | [(v,[])] <- reads s -> v
-           _                            -> False
+  n   <- maybeEnv "N" 20000000
+  pin <- maybeEnv "PINNED" True
 
   printf "BlackScholes:\n"
   printf "  number of options:   %d\n" n
@@ -40,7 +40,10 @@ main = do
   printf "  using pinned memory: %s\n" (show pin)
   printf "\n"
 
-  when pin $
+  when pin $ do
+    CUDA.initialise []
+    dev <- CUDA.device 0
+    ctx <- CUDA.create dev []
     registerForeignPtrAllocator (CUDA.mallocHostForeignPtr [])
 
   opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
