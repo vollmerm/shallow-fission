@@ -4,18 +4,18 @@
 module Main where
 
 import           Criterion.Main
+import           Prelude                           as P hiding (concat, map)
 import           System.Environment
-import           Prelude as P hiding (concat, map)
 
-import           Data.Array.Accelerate (Exp, IsNum, lift, unlift)
-import qualified Data.Array.Accelerate as A
+import           Data.Array.Accelerate             (Exp, IsNum, lift, unlift)
+import qualified Data.Array.Accelerate             as A
 import           Data.Array.Accelerate.Array.Sugar as S
-import           Data.Array.Accelerate.Fission as F
+import           Data.Array.Accelerate.Fission     as F
 
 import qualified Data.Array.Accelerate.Interpreter as I
 
 -- import qualified Data.Array.Accelerate.Trafo.Sharing -- hidden module.
-import qualified Data.Array.Accelerate.Trafo as Tr
+import qualified Data.Array.Accelerate.Trafo       as Tr
 import           Debug.Trace
 
 
@@ -33,18 +33,18 @@ main = do
       -- arr2 = mmultp' (arr,arr)
 
   putStrLn "Calling tuner to build matMul program..."
-  arr2 <- runTune2 $ matMul arr
+  let arr2 = matMul arr
 
-  let noFuse = Tr.convertAccWith (Tr.phases { Tr.enableAccFusion = False , Tr.floatOutAccFromExp = False})
-                  arr2
+  -- let noFuse = Tr.convertAccWith (Tr.phases { Tr.enableAccFusion = False , Tr.floatOutAccFromExp = False})
+  --                 arr2
 
-  putStrLn "\n================================================================================"
-  putStrLn $ "printed AST WITHOUT fusion matMult:\n" ++ (show noFuse)
+  -- putStrLn "\n================================================================================"
+  -- putStrLn $ "printed AST WITHOUT fusion matMult:\n" ++ (show noFuse)
 
-  putStrLn "\n================================================================================"
-  putStrLn $ "printed AST with fusion matMult:\n" ++ (show arr2)
+  -- putStrLn "\n================================================================================"
+  -- putStrLn $ "printed AST with fusion matMult:\n" ++ (show arr2)
 
-  putStrLn $ "Result of running:\n " ++ show (I.run arr2)
+  putStrLn $ "Result of running:\n " ++ show arr2
 {-
 
   if b' == "multi"
@@ -94,8 +94,8 @@ matMul' arr brr
 -----
 -- This generates a weird looking ast, and has 4 kernels (generate, 2 fold, generate)
 -- We should be able to do it in 3, I think... (2 fold, generate)
-matMul :: (IsNum e, Elt e) => A.Acc (Matrix e)
-       -> TuneM (A.Acc (Matrix e))
+matMul :: (IsNum e, Elt e) =>
+          A.Acc (Matrix e) -> [Matrix e]
 matMul arr
     -- = do arr'    <- return $ arr
             -- arrRepl <- return $ A.replicate (lift $ Z :. All   :. colsB :. All) arr'
@@ -110,7 +110,7 @@ matMul arr
           c       = F.zipWith (*) arrRepl brrRepl
           r = F.fold (+) 0 c
        in trace ("FYI: Calling matMul, fissioning version") $
-          F.combine r
+          F.run' r
     where
       Z :. rowsA :. _     = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int
       Z :. _     :. colsB = unlift (A.shape arr)    :: Z :. Exp Int :. Exp Int

@@ -3,9 +3,10 @@ module Main where
 import           Criterion.Main
 import           Prelude                           as P hiding (concat)
 
-import           Data.Array.Accelerate             ((:.) (..), Array, Elt, Shape)
-import           Data.Array.Accelerate.Fission     as F
+import           Data.Array.Accelerate             ((:.) (..), Array, Elt,
+                                                    Shape)
 import qualified Data.Array.Accelerate             as A
+import           Data.Array.Accelerate.Fission     as F
 import qualified Data.Array.Accelerate.Interpreter as I
 
 arrSize = 50000
@@ -32,12 +33,12 @@ ra4 = A.zipWith (+) ra1 ra2
 rfea = A.map tfe ra4
 
 main = do
-  ta4''  <- runTune2 $ F.combine ta4
-  tfea'' <- runTune2 $ F.combine tfea
+  -- ta4''  <- runTune2 $ F.combine ta4
+  -- tfea'' <- runTune2 $ F.combine tfea
 
   defaultMain [
-      bgroup "Test1" [ bench "run fission map"  $ whnf I.run ta4''
-                     , bench "run fission map + while" $ whnf I.run tfea''
+      bgroup "Test1" [ bench "run fission map"  $ whnf F.run' ta4
+                     , bench "run fission map + while" $ whnf F.run' tfea
                      , bench "run regular map" $ whnf I.run ra4
                      , bench "run regular map + while" $ whnf I.run rfea
 --                     , bench "runMulti fission map" $ whnf I.runMulti ta4''

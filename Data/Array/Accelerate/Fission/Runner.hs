@@ -254,4 +254,5 @@ adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
 
 -- FIXME: This should probably introduce a split node.
 --liftAcc :: A.Acc a -> Acc a
-liftAcc a = MkWrap $ \_ -> return $ Concat 0 [a]
+liftAcc :: A.Acc a -> Acc a
+liftAcc a = MkWrap $ \_ _ -> return $ Concat 0 [a]
