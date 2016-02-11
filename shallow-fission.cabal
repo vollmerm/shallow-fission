@@ -21,6 +21,7 @@ library
   other-modules:
         Data.Array.Accelerate.Fission.Functions
         Data.Array.Accelerate.Fission.Runner
+        Data.Array.Accelerate.Fission.Util
 
   build-depends:
           base                  >= 4.7

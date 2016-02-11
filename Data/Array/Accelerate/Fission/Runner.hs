@@ -1,5 +1,4 @@
 {-# LANGUAGE CPP                   #-}
-{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
@@ -44,14 +43,14 @@ import qualified Data.Array.Accelerate.CUDA                 as B
 import qualified Data.Array.Accelerate.Interpreter          as B
 #endif
 import qualified Data.Array.Accelerate.Array.Representation as R
+import           Data.Array.Accelerate.Fission.Util
 import           Debug.Trace
 import           Numeric.Natural
 
 -- | The language of multi-device computations.
 
 data Rep c a = Concat c [a]
-               | Split c a
-                 deriving Functor
+             | Split c a
 
 newtype Wrap c a m = MkWrap (Natural -> Exec a -> m (Rep c a))
 
@@ -96,20 +95,6 @@ dosplit _dimid arr = return (arr1, arr2)
                      in A.lift $ t :. (h + chunk)
           arr1 = A.generate (A.lift arr1Sh) (\sh -> arr A.! sh)
           arr2 = A.generate (A.lift arr2Sh) (\sh -> arr A.! adjust sh)
-
-matchShape
-  :: forall sh sh'. (Shape sh, Shape sh')
-  => sh
-  -> sh'
-  -> Maybe (sh :=: sh')
-matchShape _ _
-  | Just REFL <- matchTupleType (eltType (undefined::sh))
-                                (eltType (undefined::sh'))
-  = gcast REFL
-
-  | otherwise
-  = Nothing
-
 
 go1 :: (Slice sh, Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
@@ -163,93 +148,6 @@ use (a,b) = MkWrap $ \numSplits _runner ->
                  2 -> return $ Concat 0 [A.use a, A.use b]
                  _ -> error "Data.Array.Accelerate.Fusion.use: not handled yet"
 
-
-
--- combine :: (Slice sh, Shape sh, Elt e) => Acc (Array (sh :. Int) e)
---         -> TuneM (A.Acc (Array (sh :. Int) e))
--- combine (MkWrap fn) =
---   trace ("FYI: CALLING Fission.combine") $
---   do res <- fn 2
---      lift $ do hPutStrLn stderr (L.replicate 80 '=')
---                hPutStrLn stderr ("combine: shallow-language term:\n" ++ show res)
---                hPutStrLn stderr (L.replicate 80 '=')
---      return $ case res of
---                (Concat 0 [a]) -> a
---                (Concat 0 as)  -> foldr1 (A.++) as
---                _ -> error "combine: unfinished cases"
-
-
-
-
-askTunerSplit ::
-  (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
-  A.Exp a -> m (A.Exp a, A.Exp a)
-askTunerSplit hd = do
-  params <- ask
-  let splitP = case lookup "split" params of
-                 Nothing -> 2
-                 Just e  -> e
-      (chunk, leftover) = quotRem hd $ A.constant splitP
-  return $ if splitP > 1
-           then (chunk, (chunk*(A.constant (splitP-1)))+leftover)
-           else if splitP < -1
-                then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
-                else error "Can't split like that"
-
-
-
-
--- | Find the first extruded dimension and split that roughly in half.
---   Return two new slice expressions as well as the integer index of the dimension split.
-splitExtruded :: forall ix. Slice ix => A.Exp ix -> (Int, A.Exp ix,A.Exp ix)
-splitExtruded orig =
-   go (0::Int) orig (A.sliceIndex (undefined::ix))
-  where
-   go :: forall ix0 s c d . Slice ix0 =>
-         Int -> A.Exp ix0 -> R.SliceIndex (EltRepr ix0) s c d
-      -> (Int, A.Exp ix0, A.Exp ix0)
-   go _ _ R.SliceNil = undefined
-   go d e (R.SliceFixed _) =
-            caseSliceFixed e
-               (let hd = A.indexHead e
-                    tl = A.indexTail e
-                    (q,r) = quotRem hd 2
-                in (d, sliceSnoc (q+r) tl,
-                       sliceSnoc q tl))
-               (error "splitExtruded: impossible")
-   -- Original rather than extruded dim, keep going:
-   go d e (R.SliceAll rest) =
-     caseSliceAll e
-       (let hd = A.indexHead e
-            tl = A.indexTail e
-            (d2,sl1,sl2) = go (d+1) tl rest
-        in (d2, sliceSnoc hd sl1,
-                sliceSnoc hd sl2))
-       (error "splitExtruded: impossible")
-
-sliceSnoc :: forall sh a . (Slice sh, Elt a) =>
-             A.Exp a -> A.Exp sh -> A.Exp (sh :. a)
-sliceSnoc ea esh = A.lift (esh :. ea)
-
-
-caseSliceFixed :: forall ix b . A.Slice ix
-               => A.Exp ix
-               -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. Int)) => b)
-               -> b -> b
-caseSliceFixed = error "caseSliceFixed - Trevor can probably figure out how to implement this"
-
-caseSliceAll :: forall ix b . A.Slice ix
-               => A.Exp ix
-               -> (forall ix0 . (Slice ix0, ix ~ (ix0 A.:. All)) => b)
-               -> b -> b
-caseSliceAll = error "caseSliceAll - Trevor can probably figure out how to implement this"
-
--- | The dimension we concat on may slide over due to insertion of new dims.
-adjustDim :: Int -> R.SliceIndex ix slice coSlice sliceDim -> Int
-adjustDim _ R.SliceNil   = error "adjustDim: overran the dimensions."
-adjustDim d (R.SliceFixed r) = adjustDim d r
-adjustDim 0 (R.SliceAll _)   = 0
-adjustDim d (R.SliceAll r)   = 1 + adjustDim (d-1) r
 
 
 -- FIXME: This should probably introduce a split node.
