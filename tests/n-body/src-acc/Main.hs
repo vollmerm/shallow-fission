@@ -8,7 +8,7 @@ import Solver
 
 import Data.Array.Accelerate                                        as A
 import Data.Array.Accelerate.Array.Data                             as A
-import Data.Array.Accelerate.System.Random.MWC
+import Data.Array.Accelerate.System.Random.SFMT
 
 import Data.Array.Accelerate.Interpreter                            as I
 import Data.Array.Accelerate.CUDA                                   as CUDA ( run1 )

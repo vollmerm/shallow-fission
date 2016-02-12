@@ -9,8 +9,8 @@ module Random.Position
 
 import Common.Type
 
-import System.Random.MWC                                ( uniformR )
-import Data.Array.Accelerate.System.Random.MWC          ( (:~>) )
+import System.Random.SFMT                               ( uniformR )
+import Data.Array.Accelerate.System.Random.SFMT         ( (:~>) )
 import Data.Array.Accelerate.Array.Sugar                as A
 
 

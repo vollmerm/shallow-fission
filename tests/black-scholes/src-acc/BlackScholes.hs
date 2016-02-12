@@ -9,7 +9,7 @@ module BlackScholes (
 
 
 import Data.Array.Accelerate                                          as A
-import Data.Array.Accelerate.System.Random.MWC                        as A
+import Data.Array.Accelerate.System.Random.SFMT                       as A
 import Prelude                                                        as P
 
 
