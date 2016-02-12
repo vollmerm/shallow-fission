@@ -42,11 +42,12 @@ packages:
 
 
 extra-deps:
-- unique-0
 - chaselev-deque-0.5.0.5
-- llvm-general-pure-3.5.1.0
-- llvm-general-3.5.1.2
 - libffi-0.1
+- llvm-general-3.5.1.2
+- llvm-general-pure-3.5.1.0
+- sfmt-0.1.1
+- unique-0
 
 # Override default flag values for local packages and extra-deps
 flags:
