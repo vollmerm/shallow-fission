@@ -27,7 +27,7 @@ packages:
 
 - location:
     git:    https://github.com/tmcdonell/accelerate-random.git
-    commit: 925ed7425afc864ec730175f458225ad84974125
+    commit: 0accd7ef61e509b68795faa5bac790e4fd937d02
   extra-dep: true
 
 - location:
@@ -44,8 +44,8 @@ packages:
 extra-deps:
 - unique-0
 - chaselev-deque-0.5.0.5
-- llvm-general-pure-3.5.0.0
-- llvm-general-3.5.1.1
+- llvm-general-pure-3.5.1.0
+- llvm-general-3.5.1.2
 - libffi-0.1
 
 # Override default flag values for local packages and extra-deps
