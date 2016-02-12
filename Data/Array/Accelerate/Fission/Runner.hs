@@ -49,16 +49,16 @@ import           Numeric.Natural
 
 -- | The language of multi-device computations.
 
-data Rep c a = Concat c [a]
-             | Split c a
+data Rep a = Concat [a]
+           | Split a
 
-newtype Wrap c a m = MkWrap (Natural -> Exec a -> m (Rep c a))
+newtype Wrap a m = MkWrap (Natural -> Exec -> m (Rep a))
 
 type TuneM a = ReaderT [(String,Int)] IO a
 
-type Acc a = Wrap SplitBy (A.Acc a) (ReaderT [(String,Int)] IO)
+type Acc a = Wrap (A.Acc a) (ReaderT [(String,Int)] IO)
 
-type Exec a = forall a. (Arrays a) => (A.Acc a) -> a
+type Exec = forall a. (Arrays a) => (A.Acc a) -> a
 
 --mkacc :: (Natural -> ((A.Acc a) -> b -> a) -> TuneM (Rep Devs SplitBy (A.Acc a))) -> Acc a
 --mkacc = MkWrap
@@ -66,12 +66,12 @@ type Exec a = forall a. (Arrays a) => (A.Acc a) -> a
 type SplitBy = Int
 type DimId = SplitBy
 
-instance (Show a, A.Arrays a) => Show (Rep Int (A.Acc a)) where
-  show (Concat d ls) =
-      "(Concat along dim "++ show d++" of "++ show (length ls)++" chunks:\n" ++
+instance (Show a, A.Arrays a) => Show (Rep (A.Acc a)) where
+  show (Concat ls) =
+      "(Concat of "++ show (length ls)++" chunks:\n" ++
                          unlines [ show x | x <- ls ]++")"
-  show (Split d a) =
-     "(Split along dim "++show d++ " of "++ show a++")"
+  show (Split a) =
+     "(Split of "++ show a++")"
 
 runTune :: TuneM a -> IO a
 runTune f = runReaderT f [("split",2)]
@@ -105,11 +105,10 @@ go1 exec (MkWrap fn) =
    do rep <- runTune $ fn 2 $ \a -> exec a
       putStrLn ("Fission/RUN1: shallow-language term:\n" ++ show rep)
       case rep of
-        (Concat dim arrs)
+        (Concat arrs)
           | null arrs    -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
-          | dim /= 0     -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
           | otherwise    -> return $! P.map exec arrs
-        (Split _dim arr) -> return $! [exec arr]
+        (Split arr) -> return $! [exec arr]
 
 go0 :: (Shape sh, Elt a)
     => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
@@ -120,11 +119,11 @@ go0 exec (MkWrap fn) =
   do rep <- runTune $ fn 2 $ \a -> exec a
      putStrLn ("Fission/RUN0: shallow-language term:\n" ++ show rep)
      case rep of
-      (Concat _ arrs)
+      (Concat arrs)
         | null arrs    -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
         | [a] <- arrs  -> return $! [exec a]
         | otherwise    -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
-      (Split _dim arr) -> return $! [exec arr]
+      (Split arr) -> return $! [exec arr]
 
 
 run :: forall sh a. (Slice sh, Shape sh, Elt a)
@@ -145,7 +144,7 @@ run' arrs = run B.run arrs
 use :: Arrays arrays => (arrays,arrays) -> Acc arrays
 use (a,b) = MkWrap $ \numSplits _runner ->
             do case numSplits of
-                 2 -> return $ Concat 0 [A.use a, A.use b]
+                 2 -> return $ Concat [A.use a, A.use b]
                  _ -> error "Data.Array.Accelerate.Fusion.use: not handled yet"
 
 
@@ -153,4 +152,4 @@ use (a,b) = MkWrap $ \numSplits _runner ->
 -- FIXME: This should probably introduce a split node.
 --liftAcc :: A.Acc a -> Acc a
 liftAcc :: A.Acc a -> Acc a
-liftAcc a = MkWrap $ \_ _ -> return $ Concat 0 [a]
+liftAcc a = MkWrap $ \_ _ -> return $ Concat [a]
