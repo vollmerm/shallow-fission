@@ -5,6 +5,7 @@ module Main where
 import Mandel
 
 import Data.Array.Accelerate                                        as A
+import Data.Array.Accelerate.Debug                                  ( accInit )
 import Data.Array.Accelerate.Array.Data                             as A
 import Data.Array.Accelerate.CUDA                                   as CUDA
 import Data.Array.Accelerate.LLVM.Multi                             as Multi
@@ -31,6 +32,8 @@ maybeEnv var def = do
 
 main :: IO ()
 main = do
+  accInit
+
   width   <- maybeEnv "WIDTH"  2048
   height  <- maybeEnv "HEIGHT" 1536
   limit   <- maybeEnv "LIMIT"  512
@@ -51,10 +54,10 @@ main = do
     registerForeignPtrAllocator (CUDA.mallocHostForeignPtr [])
 
   defaultMain
-    [ bgroup "cuda"      [ bench (show n) $ whnf (CUDA.run1  (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
-    , bgroup "acc-cpu"   [ bench (show n) $ whnf (CPU.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
-    , bgroup "acc-ptx"   [ bench (show n) $ whnf (PTX.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
-    , bgroup "acc-multi" [ bench (show n) $ whnf (Multi.run1 (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    [ bgroup "cuda"       [ bench (printf "%02d" n) $ whnf (CUDA.run1  (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "llvm-cpu"   [ bench (printf "%02d" n) $ whnf (CPU.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "llvm-ptx"   [ bench (printf "%02d" n) $ whnf (PTX.run1   (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
+    , bgroup "llvm-multi" [ bench (printf "%02d" n) $ whnf (Multi.run1 (render radius)) (fromList Z [view]) | (view,radius) <- table | n <- [(1::Int)..] ]
     ]
 
 

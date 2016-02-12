@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 
 module Main where
 
@@ -5,10 +6,10 @@ import BlackScholes
 
 import Data.Array.Accelerate                                        as A
 import Data.Array.Accelerate.Array.Data                             as A
-import Data.Array.Accelerate.CUDA                                   as CUDA
-import Data.Array.Accelerate.LLVM.Multi                             as Multi
-import Data.Array.Accelerate.LLVM.Native                            as CPU
-import Data.Array.Accelerate.LLVM.PTX                               as PTX
+import Data.Array.Accelerate.CUDA                                   as CUDA  ( run1 )
+import Data.Array.Accelerate.LLVM.Multi                             as Multi ( run1 )
+import Data.Array.Accelerate.LLVM.Native                            as CPU   ( run1 )
+import Data.Array.Accelerate.LLVM.PTX                               as PTX   ( run1 )
 
 import Foreign.CUDA.Driver                                          as CUDA
 
@@ -16,6 +17,7 @@ import Criterion.Main
 
 import Control.Monad
 import System.Environment
+import System.IO
 import Text.Printf
 import Prelude                                                      as P
 
@@ -32,7 +34,7 @@ maybeEnv var def = do
 main :: IO ()
 main = do
   n   <- maybeEnv "N" 20000000
-  pin <- maybeEnv "PINNED" True
+  pin <- maybeEnv "PINNED" False
 
   printf "BlackScholes:\n"
   printf "  number of options:   %d\n" n
@@ -46,8 +48,13 @@ main = do
     ctx <- CUDA.create dev []
     registerForeignPtrAllocator (CUDA.mallocHostForeignPtr [])
 
-  opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
-  opts_f64 <- mkData n :: IO (Vector (Double,Double,Double))
+  printf "generating data... "
+  hFlush stdout
+
+  !opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
+  !opts_f64 <- mkData n :: IO (Vector (Double,Double,Double))
+
+  printf "done!\n"
 
   defaultMain
     [ bgroup "float"
