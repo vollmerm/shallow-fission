@@ -70,9 +70,9 @@ main = do
       advance = advanceBodies (calcAccels epsilon) (use dt)
 
   defaultMain
-    [ bench "cuda"      $ whnf (CUDA.run1 advance) bodies
-    , bench "acc-cpu"   $ whnf (CPU.run1 advance) bodies
-    , bench "acc-ptx"   $ whnf (PTX.run1 advance) bodies
-    , bench "acc-multi" $ whnf (Multi.run1 advance) bodies
+    [ bench "cuda"       $ whnf (CUDA.run1 advance) bodies
+    , bench "llvm-cpu"   $ whnf (CPU.run1 advance) bodies
+    , bench "llvm-ptx"   $ whnf (PTX.run1 advance) bodies
+    , bench "llvm-multi" $ whnf (Multi.run1 advance) bodies
     ]
 
