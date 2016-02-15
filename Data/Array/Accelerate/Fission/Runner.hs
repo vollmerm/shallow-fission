@@ -24,7 +24,7 @@ module Data.Array.Accelerate.Fission.Runner
 -- import Control.Monad
 import           Control.Exception                          (assert)
 import           Control.Monad
-import           Control.Monad.Reader
+import           Control.Monad.State
 import qualified Data.List                                  as L
 import           Data.Typeable
 import           System.IO                                  (hPutStrLn, stderr)
@@ -54,9 +54,14 @@ data Rep c a = Concat c [a]
 
 newtype Wrap c a m = MkWrap (Natural -> Exec a -> m (Rep c a))
 
-type TuneM a = ReaderT [(String,Int)] IO a
+type TuneM a = StateT EnvState IO a
 
-type Acc a = Wrap SplitBy (A.Acc a) (ReaderT [(String,Int)] IO)
+data EnvState = EnvState { params  :: [(String,Int)]
+                         , counter :: Int
+                         , devices :: [Int]
+                         }
+
+type Acc a = Wrap SplitBy (A.Acc a) (StateT EnvState IO)
 
 type Exec a = forall a. (Arrays a) => (A.Acc a) -> a
 
@@ -74,7 +79,8 @@ instance (Show a, A.Arrays a) => Show (Rep Int (A.Acc a)) where
      "(Split along dim "++show d++ " of "++ show a++")"
 
 runTune :: TuneM a -> IO a
-runTune f = runReaderT f [("split",2)]
+runTune f = do r <- runStateT f $ EnvState [("split",2)] 0 []
+               return $ fst r
 
 -- | This creates an actual split kernel.  We RARELY want to use this.
 --   Rather, we want to NEVER create the unchunked versions in the first place
