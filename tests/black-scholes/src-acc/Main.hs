@@ -1,4 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns     #-}
+{-# LANGUAGE ParallelListComp #-}
 
 module Main where
 
@@ -6,22 +7,27 @@ import BlackScholes
 
 import Data.Array.Accelerate                                        as A
 import Data.Array.Accelerate.Array.Data                             as A
-import Data.Array.Accelerate.CUDA                                   as CUDA  ( run1 )
-import Data.Array.Accelerate.LLVM.Multi                             as Multi ( run1 )
-import Data.Array.Accelerate.LLVM.Native                            as CPU   ( run1 )
-import Data.Array.Accelerate.LLVM.PTX                               as PTX   ( run1 )
+import Data.Array.Accelerate.Array.Sugar                            as S
+import Data.Array.Accelerate.CUDA                                   as CUDA
+import Data.Array.Accelerate.LLVM.Multi                             as Multi
+import Data.Array.Accelerate.LLVM.Native                            as CPU
+import Data.Array.Accelerate.LLVM.PTX                               as PTX
+import Data.Array.Accelerate.Debug                                  ( accInit )
 
-import Foreign.CUDA.Driver                                          as CUDA
+import Foreign.CUDA.Driver                                          as F
 
 import Criterion.Main
 
 import Control.Monad
+import System.CPUTime
 import System.Environment
 import System.IO
+import System.IO.Unsafe
 import Text.Printf
 import Prelude                                                      as P
 
 import GHC.Conc
+import GHC.Base                                                     ( quotInt, remInt )
 
 
 maybeEnv :: Read a => String -> a -> IO a
@@ -33,41 +39,101 @@ maybeEnv var def = do
 
 main :: IO ()
 main = do
-  n   <- maybeEnv "N" 20000000
-  pin <- maybeEnv "PINNED" False
+  accInit
+
+  -- Create a couple CUDA contexts for the CUDA and PTX backends. Sadly these
+  -- can not be shared.
+  F.initialise []
+  ngpu  <- F.count
+  devs  <- mapM F.device [0 .. ngpu-1]
+  prps  <- mapM F.props devs
+  cc    <- mapM     (\dev     -> CUDA.create      dev     []) devs
+  pc    <- zipWithM (\dev prp -> PTX.createTarget dev prp []) devs prps
+
+  n     <- maybeEnv "N" 20000000
+  pin   <- maybeEnv "PINNED" False
 
   printf "BlackScholes:\n"
   printf "  number of options:   %d\n" n
   printf "  number of threads:   %d\n" =<< getNumCapabilities
+  printf "  number of GPUs:      %d\n" ngpu
   printf "  using pinned memory: %s\n" (show pin)
   printf "\n"
 
+  -- Requires a CUDA _context_ to be initialised, which is a little odd...
   when pin $ do
-    CUDA.initialise []
-    dev <- CUDA.device 0
-    ctx <- CUDA.create dev []
-    registerForeignPtrAllocator (CUDA.mallocHostForeignPtr [])
+    registerForeignPtrAllocator (F.mallocHostForeignPtr [])
 
+  -- Generate random numbers. This can take a while...
   printf "generating data... "
   hFlush stdout
 
+  t1        <- getCPUTime
   !opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
   !opts_f64 <- mkData n :: IO (Vector (Double,Double,Double))
+  t2        <- getCPUTime
 
-  printf "done!\n"
+  printf "done! (%.2fs)\n" (P.fromIntegral (t2-t1) * 1.0e-12 :: Double)
+  printf "\n"
+
+  -- Grab the default context for each GPU backend. The list will not be empty
+  -- (c.f. head) because if there are no devices, initialising CUDA would
+  -- already have failed. Assume that device 0 is the "best" device.
+  --
+  let c0              = head cc
+      p0              = head pc
+      split_opts_f32  = split ngpu opts_f32
+      split_opts_f64  = split ngpu opts_f64
 
   defaultMain
     [ bgroup "float"
-      [ bench "cuda"       $ whnf (CUDA.run1 blackscholes)  opts_f32
-      , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)   opts_f32
-      , bench "llvm-ptx"   $ whnf (PTX.run1 blackscholes)   opts_f32
-      , bench "llvm-multi" $ whnf (Multi.run1 blackscholes) opts_f32
+      [ bench "cuda"       $ whnf (CUDA.run1With c0 blackscholes) opts_f32
+      , bench "llvm-ptx"   $ whnf (PTX.run1With p0 blackscholes)  opts_f32
+      , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)         opts_f32
+      , bench "llvm-multi" $ whnf (Multi.run1 blackscholes)       opts_f32
+      , bgroup "multi"
+        [ bench "cuda"     $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) split_opts_f32
+        , bench "llvm-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) split_opts_f32
+        ]
       ]
     , bgroup "double"
-      [ bench "cuda"       $ whnf (CUDA.run1 blackscholes)  opts_f64
-      , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)   opts_f64
-      , bench "llvm-ptx"   $ whnf (PTX.run1 blackscholes)   opts_f64
-      , bench "llvm-multi" $ whnf (Multi.run1 blackscholes) opts_f64
+      [ bench "cuda"       $ whnf (CUDA.run1With c0 blackscholes) opts_f64
+      , bench "llvm-ptx"   $ whnf (PTX.run1With p0 blackscholes)  opts_f64
+      , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)         opts_f64
+      , bench "llvm-multi" $ whnf (Multi.run1 blackscholes)       opts_f64
+      , bgroup "multi"
+        [ bench "cuda"     $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) split_opts_f64
+        , bench "llvm-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) split_opts_f64
+        ]
       ]
     ]
+
+
+async :: [a -> Async b] -> [a] -> ()
+async fs xs = unsafePerformIO $! do
+  let as = P.zipWith ($) fs xs
+  () <- mapM_ (\a -> a `seq` return ()) as
+  () <- mapM_ wait as
+  return ()
+
+
+split :: Elt e => Int -> Vector e -> [Vector e]
+split pieces arr =
+  [ range from to | from <- splitPts
+                  | to   <- P.tail splitPts
+  ]
+  where
+    Z :. n        = arrayShape arr
+    chunk         = n `quotInt` pieces
+    leftover      = n `remInt`  pieces
+
+    splitPts      = P.map splitIx [0 .. pieces]
+    splitIx i
+      | i < leftover  = i * (chunk + 1)
+      | otherwise     = i * chunk + leftover
+
+    range from to =
+      A.fromFunction
+          (Z :. to - from)
+          (\(Z :. i) -> arr S.! (Z :. i+from))
 
