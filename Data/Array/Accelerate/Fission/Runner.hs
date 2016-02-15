@@ -14,7 +14,7 @@ module Data.Array.Accelerate.Fission.Runner
     , Rep(..), Wrap(..)
     , matchShape, splitExtruded, adjustDim, askTunerSplit
     , dosplit
-    , TuneM, runTune
+    , TuneM, runTune, EnvState, askTunerSplit
     , run', run
     , use
     , liftAcc
@@ -160,3 +160,21 @@ use (a,b) = MkWrap $ \numSplits _runner ->
 --liftAcc :: A.Acc a -> Acc a
 liftAcc :: A.Acc a -> Acc a
 liftAcc a = MkWrap $ \_ _ -> return $ Concat 0 [a]
+
+
+askTunerSplit :: (MonadState EnvState m) => A.Exp a -> m (A.Exp a, A.Exp a)
+askTunerSplit = undefined
+-- askTunerSplit ::
+--   (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
+--   A.Exp a -> m (A.Exp a, A.Exp a)
+-- askTunerSplit hd = do
+--   params <- ask
+--   let splitP = case lookup "split" params of
+--                  Nothing -> 2
+--                  Just e  -> e
+--       (chunk, leftover) = quotRem hd $ A.constant splitP
+--   return $ if splitP > 1
+--            then (chunk, (chunk*(A.constant (splitP-1)))+leftover)
+--            else if splitP < -1
+--                 then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
+--                 else error "Can't split like that"

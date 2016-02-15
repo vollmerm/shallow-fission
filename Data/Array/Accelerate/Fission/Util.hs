@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators         #-}
 
 module Data.Array.Accelerate.Fission.Util
-    ( matchShape, splitExtruded, adjustDim, askTunerSplit )
+    ( matchShape, splitExtruded, adjustDim )
     where
 
 
@@ -17,6 +17,7 @@ module Data.Array.Accelerate.Fission.Util
 import           Control.Exception                          (assert)
 import           Control.Monad
 import           Control.Monad.Reader
+import           Control.Monad.State
 import qualified Data.List                                  as L
 import           Data.Typeable
 import           System.IO                                  (hPutStrLn, stderr)
@@ -54,21 +55,6 @@ matchShape _ _
   = Nothing
 
 
-
-askTunerSplit ::
-  (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
-  A.Exp a -> m (A.Exp a, A.Exp a)
-askTunerSplit hd = do
-  params <- ask
-  let splitP = case lookup "split" params of
-                 Nothing -> 2
-                 Just e  -> e
-      (chunk, leftover) = quotRem hd $ A.constant splitP
-  return $ if splitP > 1
-           then (chunk, (chunk*(A.constant (splitP-1)))+leftover)
-           else if splitP < -1
-                then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
-                else error "Can't split like that"
 -- | Find the first extruded dimension and split that roughly in half.
 --   Return two new slice expressions as well as the integer index of the dimension split.
 splitExtruded :: forall ix. Slice ix => A.Exp ix -> (Int, A.Exp ix,A.Exp ix)
