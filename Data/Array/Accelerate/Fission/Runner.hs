@@ -52,7 +52,7 @@ import           Numeric.Natural
 data Rep c a = Concat c [a]
              | Split c a
 
-newtype Wrap c a m = MkWrap (Natural -> Exec a -> m (Rep c a))
+newtype Wrap c a m = MkWrap (Natural -> Exec a -> m (Rep c a)) -- should move these into EnvState?
 
 type TuneM a = StateT EnvState IO a
 
@@ -63,7 +63,7 @@ data EnvState = EnvState { params  :: [(String,Int)]
 
 type Acc a = Wrap SplitBy (A.Acc a) (StateT EnvState IO)
 
-type Exec a = forall a. (Arrays a) => (A.Acc a) -> a
+type Exec a = forall a. (Arrays a) => [(A.Acc a)] -> [a]
 
 --mkacc :: (Natural -> ((A.Acc a) -> b -> a) -> TuneM (Rep Devs SplitBy (A.Acc a))) -> Acc a
 --mkacc = MkWrap
@@ -103,7 +103,7 @@ dosplit _dimid arr = return (arr1, arr2)
           arr2 = A.generate (A.lift arr2Sh) (\sh -> arr A.! adjust sh)
 
 go1 :: (Slice sh, Shape sh, Elt a)
-    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    => (forall arrs. Arrays arrs => [A.Acc arrs] -> [arrs])
     -> Acc (Array (sh :. Int) a)
     -> [Array (sh :. Int) a]
 go1 exec (MkWrap fn) =
@@ -114,11 +114,11 @@ go1 exec (MkWrap fn) =
         (Concat dim arrs)
           | null arrs    -> error "Data.Array.Accelerate.Fusion.go1: nothing to do"
           | dim /= 0     -> error "Data.Array.Accelerate.Fusion.go1: I only know about dimension 0"
-          | otherwise    -> return $! P.map exec arrs
-        (Split _dim arr) -> return $! [exec arr]
+          | otherwise    -> return $! exec arrs
+        (Split _dim arr) -> return $! exec [arr]
 
 go0 :: (Shape sh, Elt a)
-    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    => (forall arrs. Arrays arrs => [A.Acc arrs] -> [arrs])
     -> Acc (Array sh a)
     -> [Array sh a]
 go0 exec (MkWrap fn) =
@@ -128,13 +128,13 @@ go0 exec (MkWrap fn) =
      case rep of
       (Concat _ arrs)
         | null arrs    -> error "Data.Array.Accelerate.Fusion.go0: nothing to do"
-        | [a] <- arrs  -> return $! [exec a]
+        | [a] <- arrs  -> return $! exec [a]
         | otherwise    -> error "Data.Array.Accelerate.Fusion.go0: not implemented yet"
-      (Split _dim arr) -> return $! [exec arr]
+      (Split _dim arr) -> return $! exec [arr]
 
 
 run :: forall sh a. (Slice sh, Shape sh, Elt a)
-    => (forall arrs. Arrays arrs => A.Acc arrs -> arrs)
+    => (forall arrs. Arrays arrs => [A.Acc arrs] -> [arrs])
     -> Acc (Array sh a)
     -> [Array sh a]
 run exec arrs
@@ -146,7 +146,7 @@ run exec arrs
 run' :: forall sh a.
         (Elt a, Slice sh, Shape sh) =>
         Acc (Array sh a) -> [Array sh a]
-run' arrs = run B.run arrs
+run' = undefined -- arrs = run B.run arrs
 
 use :: Arrays arrays => (arrays,arrays) -> Acc arrays
 use (a,b) = MkWrap $ \numSplits _runner ->

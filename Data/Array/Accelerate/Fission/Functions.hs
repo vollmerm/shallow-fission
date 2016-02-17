@@ -171,29 +171,31 @@ foldn f i (MkWrap fn) _dims = MkWrap $ \numSplits exec ->
          do dim     <- return 0
             (a1,a2) <- dosplit dim arr
             -- m1 and m2 cause a RUN!!!
-            let m1 = A.use $ exec $ A.fold f i a1
-                m2 = A.use $ exec $ A.fold f i a2
-                m3 = A.zipWith f m1 m2
+            -- let m1 = A.use $ exec $ A.fold f i a1
+            --     m2 = A.use $ exec $ A.fold f i a2
+            let [m1',m2'] = P.map A.use $ exec [A.fold f i a1, A.fold f i a2]
+                m3 = A.zipWith f m1' m2'
             return $ Concat d [m3]
 
        (Concat d [m1,m2]) ->
          -- m1 and m2 cause a RUN!!!
-         let m1' = A.use $ exec $ A.fold f i m1
-             m2' = A.use $ exec $ A.fold f i m2
-             m3  = A.zipWith f m1' m2'
+         -- let m1' = A.use $ exec $ A.fold f i m1
+         --     m2' = A.use $ exec $ A.fold f i m2
+           let [m1',m2'] = P.map A.use $ exec [A.fold f i m1, A.fold f i m2]
+               m3  = A.zipWith f m1' m2'
          in return $ Concat d [m3]
 
        -- FIXME: no reason to throw away task parallelism here.
        -- Just mimick the 2-way case with an N-way one.
-       (Concat d ms) ->
-         do let arr = foldr1 (A.++) ms
-            dim     <- return 0
-            (a1,a2) <- dosplit dim arr
-            -- m1 and m2 cause a RUN!!!
-            let m1 = A.use $ exec $ A.fold f i a1
-                m2 = A.use $ exec $ A.fold f i a2
-                m3 = A.zipWith f m1 m2
-            return $ Concat d [m3]
+       (Concat _d _ms) -> error "Data.Array.Accelerate.Fusion.foldn: cannot intelligently fold more than 2 pieces"
+         -- do let arr = foldr1 (A.++) ms
+         --    dim     <- return 0
+         --    (a1,a2) <- dosplit dim arr
+         --    -- m1 and m2 cause a RUN!!!
+         --    let m1 = A.use $ exec $ A.fold f i a1
+         --        m2 = A.use $ exec $ A.fold f i a2
+         --        m3 = A.zipWith f m1 m2
+         --    return $ Concat d [m3]
        _ -> error "Data.Array.Accelerate.Fission.foldn: non-concat cases not handled"
 
 
