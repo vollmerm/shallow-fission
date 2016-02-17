@@ -162,8 +162,20 @@ liftAcc :: A.Acc a -> Acc a
 liftAcc a = MkWrap $ \_ _ -> return $ Concat 0 [a]
 
 
-askTunerSplit :: (MonadState EnvState m) => A.Exp a -> m (A.Exp a, A.Exp a)
-askTunerSplit = undefined
+askTunerSplit :: (MonadState EnvState m) => A.Exp Int -> m (A.Exp Int, A.Exp Int)
+askTunerSplit hd = do
+  s <- get
+  let params' = params s
+  let splitP = case lookup "split" params' of
+                 Nothing -> 2
+                 Just e  -> e
+      (chunk, leftover) = quotRem hd $ A.constant splitP
+  return $ if splitP > 1
+           then (chunk, (chunk*(A.constant (splitP-1)))+leftover)
+           else if splitP < -1
+                then (chunk*(A.constant ((abs splitP)-1)), chunk+leftover)
+                else error "Can't split like that"
+  
 -- askTunerSplit ::
 --   (Ord a, MonadReader [([Char], a)] m, A.IsIntegral a, Elt a) =>
 --   A.Exp a -> m (A.Exp a, A.Exp a)
