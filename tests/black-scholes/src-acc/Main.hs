@@ -82,8 +82,10 @@ main = do
   --
   let c0              = head cc
       p0              = head pc
-      split_opts_f32  = split ngpu opts_f32
-      split_opts_f64  = split ngpu opts_f64
+      gpugpu_opts_f32 = split ngpu opts_f32
+      gpugpu_opts_f64 = split ngpu opts_f64
+      cpugpu_opts_f32 = split (ngpu + 1) opts_f32
+      cpugpu_opts_f64 = split (ngpu + 1) opts_f64
 
   defaultMain
     [ bgroup "float"
@@ -91,28 +93,34 @@ main = do
       , bench "llvm-ptx"   $ whnf (PTX.run1With p0 blackscholes)  opts_f32
       , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)         opts_f32
       , bench "llvm-multi" $ whnf (Multi.run1 blackscholes)       opts_f32
-      , bgroup "multi"
-        [ bench "cuda"     $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) split_opts_f32
-        , bench "llvm-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) split_opts_f32
-        ]
+      , bgroup "manual-split"
+        $ bench "llvm-cpu-ptx" (whnf (async ( CPU.run1Async blackscholes : [ PTX.run1AsyncWith ptx blackscholes | ptx <- pc ])) cpugpu_opts_f32)
+        : if ngpu > 1
+            then [ bench "cuda-cuda"    $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) gpugpu_opts_f32
+                 , bench "llvm-ptx-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) gpugpu_opts_f32
+                 ]
+            else []
       ]
     , bgroup "double"
       [ bench "cuda"       $ whnf (CUDA.run1With c0 blackscholes) opts_f64
       , bench "llvm-ptx"   $ whnf (PTX.run1With p0 blackscholes)  opts_f64
       , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)         opts_f64
       , bench "llvm-multi" $ whnf (Multi.run1 blackscholes)       opts_f64
-      , bgroup "multi"
-        [ bench "cuda"     $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) split_opts_f64
-        , bench "llvm-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) split_opts_f64
-        ]
+      , bgroup "manual-split"
+        $ bench "llvm-cpu-ptx" (whnf (async ( CPU.run1Async blackscholes : [ PTX.run1AsyncWith ptx blackscholes | ptx <- pc ])) cpugpu_opts_f64)
+        : if ngpu > 1
+            then [ bench "cuda-cuda"    $ whnf (async [ CUDA.run1AsyncWith ctx blackscholes | ctx <- cc ]) gpugpu_opts_f64
+                 , bench "llvm-ptx-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx blackscholes | ptx <- pc ]) gpugpu_opts_f64
+                 ]
+            else []
       ]
     ]
 
 
-async :: [a -> Async b] -> [a] -> ()
+
+async :: [a -> IO (Async b)] -> [a] -> ()
 async fs xs = unsafePerformIO $! do
-  let as = P.zipWith ($) fs xs
-  () <- mapM_ (\a -> a `seq` return ()) as
+  as <- sequence $ P.zipWith ($) fs xs
   () <- mapM_ wait as
   return ()
 

@@ -90,7 +90,8 @@ main = do
 
       dt            = fromList Z [0.1]
       advance       = advanceBodies (calcAccels epsilon) (use dt)
-      split_bodies  = split ngpu bodies
+      gpugpu_bodies = split ngpu       bodies
+      cpugpu_bodies = split (ngpu + 1) bodies
 
       p0            = head pc
       c0            = head cc
@@ -105,20 +106,21 @@ main = do
     , bench "llvm-ptx"   $ whnf (PTX.run1With  p0 advance) bodies
     , bench "llvm-cpu"   $ whnf (CPU.run1   advance) bodies
     , bench "llvm-multi" $ whnf (Multi.run1 advance) bodies
-    , bgroup "multi"
-      [ bench "cuda"     $ whnf (async [ CUDA.run1AsyncWith ctx advance | ctx <- cc]) split_bodies
-      , bench "llvm-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx advance | ptx <- pc]) split_bodies
-      ]
+    , bgroup "manual-split"
+      $ bench "llvm-cpu-ptx" (whnf (async ( CPU.run1Async advance : [ PTX.run1AsyncWith ptx advance | ptx <- pc ])) cpugpu_bodies)
+      : if ngpu > 1
+          then [ bench "cuda-cuda"    $ whnf (async [ CUDA.run1AsyncWith ctx advance | ctx <- cc ]) gpugpu_bodies
+               , bench "llvm-ptx-ptx" $ whnf (async [ PTX.run1AsyncWith  ptx advance | ptx <- pc ]) gpugpu_bodies
+               ]
+          else []
     ]
 
 
-async :: [a -> Async b] -> [a] -> ()
+async :: [a -> IO (Async b)] -> [a] -> ()
 async fs xs = unsafePerformIO $! do
-  let as = P.zipWith ($) fs xs
-  () <- mapM_ (\a -> a `seq` return ()) as
+  as <- sequence $ P.zipWith ($) fs xs
   () <- mapM_ wait as
   return ()
-
 
 split :: Elt e => Int -> Vector e -> [Vector e]
 split 1      arr = [ arr ]

@@ -12,12 +12,12 @@ packages:
 
 - location:
     git:    https://github.com/tmcdonell/accelerate-cuda.git
-    commit: 1ff609b498041ef6c4c49d89b70ba06c3fbde010
+    commit: e5d6dbfcf557fb1dd8eb3f295272fffd19fa3029
   extra-dep: true
 
 - location:
     git:    https://github.com/tmcdonell/accelerate-llvm.git
-    commit: 465a336be2c891682c263051e154c3134a58bbd5
+    commit: c3eaeebdc3c587a914dd7bcad9000d3f447d5eca
   extra-dep: true
   subdirs:
     - accelerate-llvm
