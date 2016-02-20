@@ -5,6 +5,11 @@ resolver: lts-3.15
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
+- 'tests/black-scholes/src-acc'
+- 'tests/mandelbrot/src-acc'
+- 'tests/n-body/src-acc'
+
+# Extra dependencies
 - location:
     git:    https://github.com/tmcdonell/accelerate.git
     commit: 2098038b9316e2a5d9bed54c61bf4582469d9e06
