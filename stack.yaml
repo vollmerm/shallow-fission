@@ -47,6 +47,7 @@ extra-deps:
 - llvm-general-pure-3.5.1.0
 - llvm-general-3.5.1.2
 - libffi-0.1
+- sfmt-0.1.1
 
 # Override default flag values for local packages and extra-deps
 flags:
