@@ -1,7 +1,5 @@
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeOperators     #-}
 
 module Data.Split
   where
@@ -11,30 +9,37 @@ import Data.Array.Accelerate                            as A hiding ( Split )
 import Control.Monad
 import Prelude                                          as P
 
+
 data Split a = Split
-  { split       :: Double -> a -> (a,a)
-  , combine     :: a -> a -> a
+  { split       :: Double -> Acc a -> (Acc a, Acc a)
+  , combine     :: Acc a -> Acc a -> Acc a
   , splitDim    :: Int
   }
 
+-- data Split c where
+--     Split ::
+--       { split    :: Elt e => Double -> Acc (c e) -> (Acc (c e), Acc (c e))
+--       , combine  :: Elt e => Acc (c e) -> Acc (c e) -> Acc (c e)
+--       , splitDim :: Int
+--       }
+--       -> Split c
 
-class Splittable a where
-  splittable :: MonadPlus t => t (Split a)
+class Splittable c where
+  splittable :: MonadPlus t => t (Split c)
+
+-- instance Splittable [a] where
+--   splittable
+--     = return
+--     $ Split { split    = \p l -> let n = P.round (p * P.fromIntegral (P.length l)) in splitAt n l
+--             , combine  = (P.++)
+--             , splitDim = 0
+--             }
 
 
-instance Splittable [a] where
-  splittable
-    = return
-    $ Split { split    = \p l -> let n = P.round (p * P.fromIntegral (P.length l)) in splitAt n l
-            , combine  = (P.++)
-            , splitDim = 0
-            }
-
-
-instance Elt e => Splittable (Acc (Scalar e)) where
+instance Splittable (Scalar e) where
   splittable = mzero
 
-instance Elt e => Splittable (Acc (Vector e)) where
+instance Elt e => Splittable (Vector e) where
   splittable
     = return
     $ Split { split     = \p a -> let n = A.round (constant p * A.fromIntegral (size a)) in (A.take n a, A.drop n a)
@@ -42,7 +47,7 @@ instance Elt e => Splittable (Acc (Vector e)) where
             , splitDim  = 0
             }
 
-instance Elt e => Splittable (Acc (Array DIM2 e)) where
+instance Elt e => Splittable (Array DIM2 e) where
   splittable = return splitH `mplus` return splitV
     where
       splitH = Split { split = \p a ->
