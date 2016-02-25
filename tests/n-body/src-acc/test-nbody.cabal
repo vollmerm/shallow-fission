@@ -36,7 +36,7 @@ executable test-nbody
       , cuda
       , sfmt
 
-  ghc-options:        -threaded -O3
+  ghc-options:        -threaded -O3 -eventlog -rtsopts
 
   -- required due to linker bugs in ghc-7.10.3 (AFAIK)
   if os(darwin)
