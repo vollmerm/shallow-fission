@@ -15,7 +15,7 @@ cabal-version:          >=1.10
 
 library
   default-language:    Haskell2010
-  hs-source-dirs:      src
+  hs-source-dirs:      src2
   exposed-modules:
         Data.Array.Accelerate.Fission
         Data.Split
@@ -27,103 +27,103 @@ library
 
   ghc-options:  -Wall
 
-executable fission-test1
-  default-language:     Haskell2010
-  main-is:              Test1.hs
-  hs-source-dirs:       tests/simple
-  ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-test1
+--   default-language:     Haskell2010
+--   main-is:              Test1.hs
+--   hs-source-dirs:       tests/simple
+--   ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
 
-executable fission-test2
-  default-language:     Haskell2010
-  main-is:              Test2.hs
-  hs-source-dirs:       tests/simple
-  ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-test2
+--   default-language:     Haskell2010
+--   main-is:              Test2.hs
+--   hs-source-dirs:       tests/simple
+--   ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-executable fission-matmult
-  default-language:     Haskell2010
-  main-is:              Matmult.hs
-  hs-source-dirs:       tests/simple
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-matmult
+--   default-language:     Haskell2010
+--   main-is:              Matmult.hs
+--   hs-source-dirs:       tests/simple
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-executable fission-nbody
-  default-language:     Haskell2010
-  main-is:              Main.hs
-  hs-source-dirs:       tests/n-body
-  ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , accelerate-random     >= 0.15
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-nbody
+--   default-language:     Haskell2010
+--   main-is:              Main.hs
+--   hs-source-dirs:       tests/n-body
+--   ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , accelerate-random     >= 0.15
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-executable fission-blackscholes
-  default-language:     Haskell2010
-  main-is:              Main.hs
-  hs-source-dirs:       tests/black-scholes
-  ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , accelerate-random     >= 0.15
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-blackscholes
+--   default-language:     Haskell2010
+--   main-is:              Main.hs
+--   hs-source-dirs:       tests/black-scholes
+--   ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , accelerate-random     >= 0.15
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-executable fission-mandelbrot
-  default-language:     Haskell2010
-  main-is:              Main.hs
-  hs-source-dirs:       tests/mandelbrot
-  ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-mandelbrot
+--   default-language:     Haskell2010
+--   main-is:              Main.hs
+--   hs-source-dirs:       tests/mandelbrot
+--   ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-executable fission-matrix-multiply
-  default-language:     Haskell2010
-  main-is:              Main.hs
-  hs-source-dirs:       tests/matrix-multiply
-  ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
-  --
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , criterion
+-- executable fission-matrix-multiply
+--   default-language:     Haskell2010
+--   main-is:              Main.hs
+--   hs-source-dirs:       tests/matrix-multiply
+--   ghc-options:         -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+--   --
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , criterion
 
-test-suite test
-  default-language:     Haskell2010
-  main-is:              Test.hs
-  type:                 exitcode-stdio-1.0
-  hs-source-dirs:       tests
-  build-depends:
-          base                  >= 4.7
-        , accelerate            >= 2.0
-        , shallow-fission       == 0.1.0.0
-        , Cabal >= 1.9.2
-  ghc-options: -threaded
+-- test-suite test
+--   default-language:     Haskell2010
+--   main-is:              Test.hs
+--   type:                 exitcode-stdio-1.0
+--   hs-source-dirs:       tests
+--   build-depends:
+--           base                  >= 4.7
+--         , accelerate            >= 2.0
+--         , shallow-fission       == 0.1.0.0
+--         , Cabal >= 1.9.2
+--   ghc-options: -threaded
 
 
 -- vim: nospell
