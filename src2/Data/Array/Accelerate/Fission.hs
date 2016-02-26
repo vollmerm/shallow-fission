@@ -22,8 +22,7 @@ import           Control.Monad
 data Rep a where
     Return :: a -> Rep a
     Bind   :: Rep a -> (a -> Rep a) -> Rep a
-    Divide :: Rep a -> Rep a -- Split a -> Rep a -> Rep a
-    Join   :: Rep a -> Rep a -- Split a -> Rep a -> Rep a
+    Join   :: (a -> b -> Rep c) -> Rep a -> Rep b -> Rep c
 
 data Acc a where
     Acc :: Int -> [A.Acc a] -> Acc a
@@ -65,11 +64,13 @@ foo1 as = fizzMap (+ 1) as
 foo2 :: Shape sh => Acc (Array sh Float) -> Rep (Acc (Array sh Float))
 foo2 as = Bind (foo1 as) $ fizzMap (* 2)
 
-naiveEval :: Rep a -> a
+-- naiveEval :: Rep a -> a
 naiveEval (Return a) = a
-naiveEval (Bind b f) = naiveEval $ f (naiveEval b)
+naiveEval (Bind b f) = naiveEval $ f (naiveEval b) --  $ Acc 0 $ fizzCompute (naiveEval b)
 naiveEval (Divide a) = naiveEval a
 naiveEval (Join a)   = naiveEval a
+
+fizzCompute (Acc s as) = Acc s $ P.map (A.compute) as
 
 -- λ> naiveEval $ foo1 arr
 -- Acc 0 [let a0 = use (Array (Z :. 10) [0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0])
