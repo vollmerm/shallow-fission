@@ -21,8 +21,8 @@ import           Control.Monad
 
 data Rep a where
     Return :: a -> Rep a
-    Bind   :: Rep a -> (a -> Rep a) -> Rep a
-    Join   :: (a -> b -> Rep c) -> Rep a -> Rep b -> Rep c
+    Bind   :: Rep b -> (b -> Rep a) -> Rep a
+    Join   :: (b -> c -> Rep a) -> Rep b -> Rep c -> Rep a
 
 data Acc a where
     Acc :: Int -> [A.Acc a] -> Acc a
@@ -53,7 +53,11 @@ join0 :: (Shape sh, Elt e) =>
          (Exp e -> Exp e -> Exp e)
       -> Acc (Array sh e)
       -> Acc (Array sh e)
-join0 _f _a = undefined
+join0 f a = undefined
+--join0 f = return $ P.foldl1 (Join (zipWith' f)) . P.map (return . Do) . fanout
+
+fanout :: Acc a -> [Acc a]
+fanout (Acc s as) = P.map (\a -> Acc s [a]) as
 
 arr :: Acc (Vector Float)
 arr = Acc 0 [use $ A.fromList (Z :. 10) [0..]]
@@ -64,11 +68,13 @@ foo1 as = fizzMap (+ 1) as
 foo2 :: Shape sh => Acc (Array sh Float) -> Rep (Acc (Array sh Float))
 foo2 as = Bind (foo1 as) $ fizzMap (* 2)
 
--- naiveEval :: Rep a -> a
-naiveEval (Return a) = a
-naiveEval (Bind b f) = naiveEval $ f (naiveEval b) --  $ Acc 0 $ fizzCompute (naiveEval b)
-naiveEval (Divide a) = naiveEval a
-naiveEval (Join a)   = naiveEval a
+foo3 :: Shape sh => Acc (Array sh Float) -> Rep (Acc (Array sh (Float,Float)))
+foo3 as = Bind (foo2 as) $ fizzMap (\x -> A.lift (x,1::Float))
+
+naiveEval :: Rep a -> a
+naiveEval (Return a)   = a
+naiveEval (Bind b f)   = naiveEval $ f (naiveEval b) --  $ Acc 0 $ fizzCompute (naiveEval b)
+naiveEval (Join f a b) = naiveEval $ f (naiveEval a) (naiveEval b)
 
 fizzCompute (Acc s as) = Acc s $ P.map (A.compute) as
 
