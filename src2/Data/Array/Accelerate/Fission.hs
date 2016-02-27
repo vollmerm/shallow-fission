@@ -155,6 +155,7 @@ simplifyFunc f (Bind b g) =
     let b' = simplify b
     in case b' of
          Return a -> simplifyFunc f (g a)
+         Use a -> Bind (Use a) (\a' -> Bind (g a') f)
          _ -> Bind (Bind b' g) f
 simplifyFunc f (Join g a b) =
     let a' = simplify a
