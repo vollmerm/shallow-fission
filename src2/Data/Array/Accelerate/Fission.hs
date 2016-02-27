@@ -23,7 +23,12 @@ data Rep a where
     Return :: a -> Rep a
     Bind   :: Rep b -> (b -> Rep a) -> Rep a
     Join   :: (b -> c -> Rep a) -> Rep b -> Rep c -> Rep a
---    Concat :: Rep a -> Rep a
+    Do     :: Rep b -> Rep a
+
+instance Show (Rep a) where
+    show (Return _) = "(Return <data>)"
+    show (Bind b _) = "(Bind " P.++ show b P.++ " <function>)"
+    show (Join _ a b) = "(Join <function> " P.++ show a P.++ " " P.++ show b P.++ ")"
 
 data Acc a where
     Acc :: Int -> [A.Acc a] -> Acc a
@@ -72,7 +77,8 @@ join0 _ _ = error "impossible"
 
 
 arr :: Acc (Array DIM2 Float)
-arr = Acc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
+arr = Acc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
+             use $ A.fromList (Z :. 10 :. 10) [0..]]
 
 foo1 :: (Shape sh) => Acc (Array sh Float) -> Rep (Acc (Array sh Float))
 foo1 as = fizzMap (+ 1) as
@@ -88,23 +94,48 @@ foo3 as = Bind (foo2 as) $ fizzMap (\x -> A.lift (x,1::Float))
 
 foo4 :: Shape sh => Acc (Array (sh :. Int) Float) -> Rep (Acc (Array sh Float))
 foo4 as = Bind (foo2 as) $ fizzFold (+) 0
--- Bind (Bind (Return map) map) (Join fold)
+-- Bind (Bind (Return map) map) (Bind fold (Join zipwith))
 
 foo5 :: Shape sh => Acc (Array (sh :. Int) Float) -> Rep (Acc (Array sh Float))
 foo5 as = Bind (foo4 as) $ fizzMap (* 5)
--- Bind (Bind (Bind (Return map) map) (Join fold)) map
+-- Bind (Bind (Bind (Return map) map) (Bind fold (Join zipwith))) map
 
 naiveEval :: Rep a -> a
 naiveEval (Return a)   = a
 naiveEval (Bind b f)   = naiveEval $ f (naiveEval b) --  $ Acc 0 $ fizzCompute (naiveEval b)
 naiveEval (Join f a b) = naiveEval $ f (naiveEval a) (naiveEval b)
 
+fizzCompute :: forall a. Arrays a => Acc a -> Acc a
 fizzCompute (Acc s as) = Acc s $ P.map (A.compute) as
 
 -- λ> naiveEval $ foo1 arr
 -- Acc 0 [let a0 = use (Array (Z :. 10) [0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0])
 -- in map (\x0 -> 1.0 + x0) a0]
 
+
+simplify :: Rep a -> Rep a
+simplify (Return a) = Return a
+simplify (Bind b f) = simplifyFunc f (simplify b)
+simplify (Join f a b) = Join f (simplify a) (simplify b)
+
+simplifyFunc :: (b -> Rep a) -> Rep b -> Rep a
+simplifyFunc f (Return a) = f a
+simplifyFunc f (Bind b g) =
+    let b' = simplify b
+    in case b' of
+         Return a -> simplifyFunc f (g a)
+         _ -> Bind (Bind b' g) f
+simplifyFunc f (Join g a b) =
+    let a' = simplify a
+        b' = simplify b
+    in Bind (Join g a' b') f
+
+-- simplifyFunc f (Join g a b) =
+--     let a' = simplify a
+--         b' = simplify b
+--     in case (a',b') of
+--          (Return a, Return b) -> Bind (g a b) f
+--          _ -> Bind (Join g a' b') f
 
 -- data F a where
 --   Do   :: a -> F a
