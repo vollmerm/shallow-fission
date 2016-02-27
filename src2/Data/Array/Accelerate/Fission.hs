@@ -23,6 +23,7 @@ data Rep a where
     Return :: a -> Rep a
     Bind   :: Rep b -> (b -> Rep a) -> Rep a
     Join   :: (b -> c -> Rep a) -> Rep b -> Rep c -> Rep a
+--    Concat :: Rep a -> Rep a
 
 data Acc a where
     Acc :: Int -> [A.Acc a] -> Acc a
@@ -42,34 +43,56 @@ fizzFold :: forall sh e. (Shape sh, Elt e) =>
 fizzFold f z (Acc s as) =
     Bind (Return $ Acc s $ P.map (A.fold f z) as)
          (\b -> case s of
-                  0 -> Return $ join0 f b
-                  1 -> Return $ concatV b
+                  0 -> join0 f b
+                  1 -> concatV b
                   _ -> error "fizzFold: DIM case not handled.")
 
-concatV :: Acc (Array sh e) -> Acc (Array sh e)
+zipWith' :: (Shape sh, Elt a, Elt b, Elt c) =>
+            (Exp a -> Exp b -> Exp c)
+         -> Acc (Array sh a)
+         -> Acc (Array sh b)
+         -> Rep (Acc (Array sh c))
+zipWith' f (Acc s1 a1) (Acc s2 a2) =
+    -- s1 and s2 might not be equal...
+    Return $ Acc s1 $ P.zipWith (A.zipWith f) a1 a2
+
+concatV :: Acc (Array sh e) -> Rep (Acc (Array sh e))
 concatV _a = undefined
 
 join0 :: (Shape sh, Elt e) =>
          (Exp e -> Exp e -> Exp e)
       -> Acc (Array sh e)
-      -> Acc (Array sh e)
-join0 f a = undefined
---join0 f = return $ P.foldl1 (Join (zipWith' f)) . P.map (return . Do) . fanout
+      -> Rep (Acc (Array sh e))
+join0 _ (Acc s [a]) = Return $ Acc s [a]
+join0 f (Acc s (a:as)) =
+    Join (zipWith' f) (Return $ Acc s [a]) (join0 f (Acc s as))
+join0 _ _ = error "impossible"
 
-fanout :: Acc a -> [Acc a]
-fanout (Acc s as) = P.map (\a -> Acc s [a]) as
 
-arr :: Acc (Vector Float)
-arr = Acc 0 [use $ A.fromList (Z :. 10) [0..]]
+
+
+arr :: Acc (Array DIM2 Float)
+arr = Acc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
 
 foo1 :: (Shape sh) => Acc (Array sh Float) -> Rep (Acc (Array sh Float))
 foo1 as = fizzMap (+ 1) as
+-- Return map
 
 foo2 :: Shape sh => Acc (Array sh Float) -> Rep (Acc (Array sh Float))
 foo2 as = Bind (foo1 as) $ fizzMap (* 2)
+-- Bind (Return map) map
 
 foo3 :: Shape sh => Acc (Array sh Float) -> Rep (Acc (Array sh (Float,Float)))
 foo3 as = Bind (foo2 as) $ fizzMap (\x -> A.lift (x,1::Float))
+-- Bind (Bind (Return map) map) map
+
+foo4 :: Shape sh => Acc (Array (sh :. Int) Float) -> Rep (Acc (Array sh Float))
+foo4 as = Bind (foo2 as) $ fizzFold (+) 0
+-- Bind (Bind (Return map) map) (Join fold)
+
+foo5 :: Shape sh => Acc (Array (sh :. Int) Float) -> Rep (Acc (Array sh Float))
+foo5 as = Bind (foo4 as) $ fizzMap (* 5)
+-- Bind (Bind (Bind (Return map) map) (Join fold)) map
 
 naiveEval :: Rep a -> a
 naiveEval (Return a)   = a
