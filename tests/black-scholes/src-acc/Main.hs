@@ -47,8 +47,8 @@ main = do
   ngpu  <- F.count
   devs  <- mapM F.device [0 .. ngpu-1]
   prps  <- mapM F.props devs
-  cc    <- mapM     (\dev     -> CUDA.create      dev     []) devs
-  pc    <- zipWithM (\dev prp -> PTX.createTarget dev prp []) devs prps
+  cc    <- mapM     (\dev     -> CUDA.create               dev     []) devs
+  pc    <- zipWithM (\dev prp -> PTX.createTargetForDevice dev prp []) devs prps
 
   n     <- maybeEnv "N" 20000000
   pin   <- maybeEnv "PINNED" False
@@ -115,7 +115,6 @@ main = do
             else []
       ]
     ]
-
 
 
 async :: [a -> IO (Async b)] -> [a] -> ()
