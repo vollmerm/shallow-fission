@@ -8,23 +8,23 @@
 
 module Data.Array.Accelerate.Fission where
 
-import           Control.Monad
+import           Control.Monad()
 import           Data.Array.Accelerate as A hiding (Acc, Divide, Split)
 import qualified Data.Array.Accelerate as A
-import           Data.Split
+--import           Data.Split
 import           Prelude               as P
-import           Text.Printf
+import           Text.Printf()
 
 data Rep a where
     Return :: (Arrays a)
-           => (FAcc a) -> Rep (FAcc a)
+           => FAcc a -> Rep (FAcc a)
     Bind   :: (Arrays a, Arrays b)
            => Rep (FAcc b) -> (FAcc b -> Rep (FAcc a)) -> Rep (FAcc a)
     Join   :: (Arrays a, Arrays b, Arrays c)
            => (Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a))
            -> Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a)
     Use    :: (Arrays a)
-           => (FAcc a) -> Rep (FAcc a) -- avoid collapsing use with bind
+           => FAcc a -> Rep (FAcc a) -- avoid collapsing use with bind
 
 
 data FAcc a where
@@ -38,7 +38,7 @@ type Acc a = Rep (FAcc a)
 --     show (Return a) = printf "(Return %s)" $ show a
 --     show (Bind b f) = printf "(Bind %s %s)" (show b) (show f)
 fizzCompute :: Arrays a => FAcc a -> FAcc a
-fizzCompute (FAcc s as) = FAcc s $ P.map (A.compute) as
+fizzCompute (FAcc s as) = FAcc s $ P.map A.compute as
 
 
 computeEval :: Rep a -> a
@@ -62,20 +62,54 @@ fizzMap :: (Shape sh, Elt a, Elt b) =>
 fizzMap f a = Bind a f'
     where f' (FAcc s as) = Return $ FAcc s $ P.map (A.map f) as
 
+fizzZipWith :: (Shape sh, Elt a, Elt b, Elt c) =>
+               (Exp a -> Exp b -> Exp c)
+            -> Acc (Array sh a)
+            -> Acc (Array sh b)
+            -> Acc (Array sh c)
+fizzZipWith f a1 a2 =
+    Bind a1 $ Bind a2 . f'
+    where f' (FAcc s1 a1') (FAcc _s2 a2') =
+              Return $ FAcc s1 $ P.zipWith (A.zipWith f) a1' a2'
+
 fizzZipWith' :: (Shape sh, Elt a, Elt b, Elt c) =>
                 (Exp a -> Exp b -> Exp c)
              -> Acc (Array sh a)
              -> Acc (Array sh b)
              -> Acc (Array sh c)
-fizzZipWith' f a1 a2 =
-    Bind a1 (\a1 -> (Bind a2 (\a2 -> f' a1 a2)))
-    where f' (FAcc s1 a1) (FAcc _s2 a2) =
-              Return $ FAcc s1 $ P.zipWith (A.zipWith f) a1 a2
+fizzZipWith' f = Join (fizzZipWith f)
+
+fizzFold :: forall sh e. (Shape sh, Elt e) =>
+            (Exp e -> Exp e -> Exp e)
+         -> Exp e
+         -> Acc (Array (sh :. Int) e)
+         -> Acc (Array sh e)
+fizzFold f z a = Bind a f'
+    where f' (FAcc s as) =
+              Bind (Return $ FAcc s $ P.map (A.fold f z) as)
+                   (\a' -> case s of
+                            0 -> join0 f a'
+                            1 -> concatV a'
+                            _ -> error "fizzFold: DIM case not handled.")
+
+
+concatV :: FAcc (Array sh e) -> Acc (Array sh e)
+concatV _a = undefined
+
+
+join0 :: (Shape sh, Elt e) =>
+         (Exp e -> Exp e -> Exp e)
+      -> FAcc (Array sh e)
+      -> Acc (Array sh e)
+-- join0 f (FAcc s [a]) = Return $ FAcc s [a]
+join0 f (FAcc s [a]) = Join const (Return $ FAcc s [a]) (Return $ FAcc s [a])
+join0 f (FAcc s (a:as)) =
+    Join (fizzZipWith f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
 
 arr :: Acc (Array DIM2 Float)
-arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
--- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
---                     use $ A.fromList (Z :. 10 :. 10) [0..]]
+-- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
+arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
+                    use $ A.fromList (Z :. 10 :. 10) [0..]]
 
 foo1 :: (Shape sh) => Acc (Array sh Float) -> Acc (Array sh Float)
 foo1 as = fizzMap (+ 1) as
@@ -86,9 +120,16 @@ foo2 as = fizzMap (* 2) (foo1 as)
 -- Bind (Bind (Use a) (\a -> Return (map (+ 1) a))) (\a -> (Return map (* 2) a))
 
 fooz :: Shape sh => Acc (Array sh Float) -> Acc (Array sh Float)
-fooz as = Join (fizzZipWith' (+)) (foo2 as) (foo1 as)
+fooz as = fizzZipWith' (+) (foo2 as) (foo1 as)
 
+fooz1 :: Shape sh => Acc (Array sh Float) -> Acc (Array sh Float)
+fooz1 as = let a = foo2 as in fizzZipWith' (+) a a
 
+foo3 :: Shape sh => Acc (Array sh Float) -> Acc (Array sh (Float,Float))
+foo3 as = fizzMap (\x -> A.lift (x,1::Float)) (foo2 as)
+
+foo4 :: Shape sh => Acc (Array (sh :. Int) Float) -> Acc (Array sh Float)
+foo4 as = fizzFold (+) 0 (foo2 as)
 
 partialEval :: Rep a -> Rep a
 partialEval (Return a) = Return a
