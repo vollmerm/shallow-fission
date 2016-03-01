@@ -155,13 +155,14 @@ partialEval (Bind b f) =
          Return a -> f a
          Use a -> Bind (Use a) f
          Bind b'' g -> Bind b'' $ repCompose g f
+         _ -> Bind b' f
 partialEval (Join f a b) = Join f (partialEval a) (partialEval b)
 partialEval (Use a) = Use a
 
 repCompose :: (a -> Rep b) -> (b -> Rep c) -> a -> Rep c
 repCompose g f a =
     case g a of
-      Return a -> f a
+      Return a' -> f a'
       Bind b f' -> Bind (partialEval (Bind b f')) f
-      Join f' a b -> Bind (partialEval (Join f' a b)) f
-      Use a -> Bind (Use a) f
+      Join f' a' b -> Bind (partialEval (Join f' a' b)) f
+      Use a' -> Bind (Use a') f
