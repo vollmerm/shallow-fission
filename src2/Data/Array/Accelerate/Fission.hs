@@ -22,14 +22,26 @@ import           Control.Monad
 data Rep a where
     Return :: a -> Rep a
     Bind   :: Rep b -> (b -> Rep a) -> Rep a
-    Join   :: (b -> c -> Rep a) -> Rep b -> Rep c -> Rep a
+    Join   :: (Rep b -> Rep c -> Rep a) -> Rep b -> Rep c -> Rep a
     Use    :: a -> Rep a -- avoid collapsing use with bind
+
+data Rep1 f a where
+    Return1 :: f a -> Rep1 f a
+    Bind1   :: Rep1 f b -> (f b -> Rep1 f a) -> Rep1 f a
+    Join1   :: (Rep1 f b -> Rep1 f c -> Rep1 f a) -> Rep1 f b -> Rep1 f c -> Rep1 f a
+    Use1    :: (f a) -> Rep1 f a -- avoid collapsing use with bind
+
 
 instance Show (Rep a) where
     show (Return _) = "(Return <data>)"
     show (Bind b _) = "(Bind " P.++ show b P.++ " <function>)"
     show (Join _ a b) = "(Join <function> " P.++ show a P.++ " " P.++ show b P.++ ")"
     show (Use _) = "(Use <data>)"
+
+instance Arrays a => Show (Rep1 FAcc a) where
+    show (Return1 a) = "(Return " P.++ show a P.++ ")"
+    show (Bind1 b f) = "(Bind " P.++ show b P.++ " " P.++ show f P.++ ")"
+
 
 data FAcc a where
     FAcc :: Int -> [A.Acc a] -> FAcc a
@@ -93,7 +105,7 @@ join0 :: (Shape sh, Elt e) =>
       -> Acc (Array sh e)
 join0 f (FAcc s [a]) = Return $ FAcc s [a]
 join0 f (FAcc s (a:as)) =
-    Join (zipWith' f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
+    Join (fizzZipWith' f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
 -- join0 _ (Acc s [a]) = Return $ Acc s [a]
 -- join0 f (Acc s (a:as)) =
 --     Join (zipWith' f) (Return $ Acc s [a]) (join0 f (Acc s as))
@@ -128,18 +140,18 @@ foo5 as = fizzMap (* 5) (foo4 as)
 naiveEval :: Rep a -> a
 naiveEval (Return a)   = a
 naiveEval (Bind b f)   = naiveEval $ f (naiveEval b) --  $ Acc 0 $ fizzCompute (naiveEval b)
-naiveEval (Join f a b) = naiveEval $ f (naiveEval a) (naiveEval b)
+naiveEval (Join f a b) = naiveEval $ f a b
 naiveEval (Use a)      = a
 
 -- Can't write this:
--- computeEval :: Rep (FAcc a) -> FAcc a
--- computeEval (Return a)   = a
--- computeEval (Bind b f)   = computeEval $ f $ fizzCompute (computeEval b)
--- computeEval (Join f a b) = computeEval $ f (computeEval a) (computeEval b)
--- computeEval (Use a)      = a
+computeEval :: Rep1 FAcc a -> FAcc a
+computeEval (Return1 a)   = a
+computeEval (Bind1 b f)   = computeEval $ f (computeEval b)
+computeEval (Join1 f a b) = computeEval $ f a b
+computeEval (Use1 a)      = a
 
 
-fizzCompute :: forall a. Arrays a => FAcc a -> FAcc a
+fizzCompute :: Arrays a => FAcc a -> FAcc a
 fizzCompute (FAcc s as) = FAcc s $ P.map (A.compute) as
 
 -- λ> naiveEval $ foo1 arr
@@ -166,3 +178,4 @@ repCompose g f a =
       Bind b f' -> Bind (partialEval (Bind b f')) f
       Join f' a' b -> Bind (partialEval (Join f' a' b)) f
       Use a' -> Bind (Use a') f
+--      b -> Bind b f
