@@ -12,7 +12,7 @@ packages:
 # Extra dependencies
 - location:
     git:    https://github.com/tmcdonell/accelerate.git
-    commit: 2098038b9316e2a5d9bed54c61bf4582469d9e06
+    commit: 02b164b689e8ddc6fcd84ebd27d0a7e875a5b5be
   extra-dep: true
 
 - location:
@@ -22,7 +22,7 @@ packages:
 
 - location:
     git:    https://github.com/tmcdonell/accelerate-llvm.git
-    commit: 92ab0c104ce909dfdce188a28b5158f185eaddd4
+    commit: ab52ad3f44f52738b7afacfe22cc9cfbdb58d745
   extra-dep: true
   subdirs:
     - accelerate-llvm
