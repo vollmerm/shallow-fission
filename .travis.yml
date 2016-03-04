@@ -8,7 +8,7 @@ cache:
 
 matrix:
   include:
-    - env: GHC=7.10 LLVM=3.5
+    - env: GHC=7.10 LLVM=3.5 CUDA=7.0.28
       compiler: "GHC 7.10"
       addons:
         apt:
