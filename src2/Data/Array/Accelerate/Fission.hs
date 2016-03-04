@@ -24,7 +24,7 @@ data Rep a where
            => (Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a))
            -> Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a)
     Use    :: (Arrays a)
-           => FAcc a -> Rep (FAcc a) -- avoid collapsing use with bind
+           => a -> Rep (FAcc a) -- avoid collapsing use with bind
 
 
 data FAcc a where
@@ -41,17 +41,17 @@ fizzCompute :: Arrays a => FAcc a -> FAcc a
 fizzCompute (FAcc s as) = FAcc s $ P.map A.compute as
 
 
-computeEval :: Rep a -> a
+computeEval :: Rep (FAcc a) -> FAcc a
 computeEval (Return a)   = a
 computeEval (Bind b f)   = computeEval $ f $ fizzCompute (computeEval b)
 computeEval (Join f a b) = computeEval $ f a b
-computeEval (Use a)      = a
+computeEval (Use a)      = FAcc 0 [use a]
 
-nocomputeEval :: Rep a -> a
+nocomputeEval :: Rep (FAcc a) -> (FAcc a)
 nocomputeEval (Return a)   = a
 nocomputeEval (Bind b f)   = computeEval $ f (computeEval b)
 nocomputeEval (Join f a b) = computeEval $ f a b
-nocomputeEval (Use a)      = a
+nocomputeEval (Use a)      = FAcc 0 [use a]
 
 
 
@@ -107,9 +107,10 @@ join0 f (FAcc s (a:as)) =
     Join (fizzZipWith f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
 
 arr :: Acc (Array DIM2 Float)
+arr = Use $ A.fromList (Z :. 10 :. 10) [0..]
 -- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
-arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
-                    use $ A.fromList (Z :. 10 :. 10) [0..]]
+-- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
+--                     use $ A.fromList (Z :. 10 :. 10) [0..]]
 
 foo1 :: (Shape sh) => Acc (Array sh Float) -> Acc (Array sh Float)
 foo1 as = fizzMap (+ 1) as
@@ -151,4 +152,50 @@ repCompose g f a =
       Bind b f' -> Bind (partialEval (Bind b f')) f
       Join f' a' b -> Bind (partialEval (Join f' a' b)) f
       Use a' -> Bind (Use a') f
---      b -> Bind b f
+
+
+-- data Rep' a where
+--     Return' :: (Arrays a)
+--             => a -> Rep' a
+--     Bind'   :: (Arrays a, Arrays b)
+--             => Rep' b -> (b -> Rep' a) -> Rep' a
+--     Join'   :: (Arrays a, Arrays b, Arrays c)
+--             => (Rep' b -> Rep' c -> Rep' a)
+--             -> Rep' b -> Rep' c -> Rep' a
+--     Use'    :: (Arrays a)
+--             => a -> Rep' a
+
+-- data Rep' a where
+--     Return' :: (Arrays a) => A.Acc a -> Rep' (A.Acc a)
+--     Bind'   :: (Arrays a) => Rep' (A.Acc b) -> (A.Acc b -> Rep' (A.Acc a)) -> Rep' (A.Acc a)
+--     Join'   :: (Arrays a, Arrays b, Arrays c) =>
+--                (Rep' (A.Acc b) -> Rep' (A.Acc c) -> Rep' (A.Acc a)) ->
+--                Rep' (A.Acc b) -> Rep' (A.Acc c) -> Rep' (A.Acc a)
+--     Use'    :: (Arrays a) => A.Acc a -> Rep' (A.Acc a)
+
+-- naiveTranslate :: (Arrays a) => Rep (FAcc a) -> Rep' (A.Acc a)
+-- naiveTranslate (Return (FAcc _ [a])) = Return' a
+-- naiveTranslate (Bind b f) = Bind' (naiveTranslate b) f'
+--     where f' a = Return' $ extractAcc $ nocomputeEval (f $ FAcc 0 [a])
+-- naiveTranslate (Join f a b) = Join' undefined (naiveTranslate a) (naiveTranslate b)
+-- naiveTranslate (Use (FAcc _ [a])) = Use' a
+
+extractAcc :: Arrays a => FAcc a -> A.Acc a
+extractAcc (FAcc _ [a]) = a
+wrapAcc :: Arrays a => A.Acc a -> FAcc a
+wrapAcc a = FAcc 0 [a]
+
+data Schedule a where
+    Compute :: (Arrays a, Arrays b) => Schedule b -> (b -> a) -> Schedule a
+    Use'    :: (Arrays a) => a -> Schedule a
+--    Return' :: (Arrays a) => A.Acc a -> Schedule a
+
+run1' :: (Arrays a, Arrays b) => (A.Acc a -> A.Acc b) -> (a -> b)
+run1' = undefined
+
+naiveTranslate :: Rep (FAcc a) -> Schedule a
+naiveTranslate (Return (FAcc _ [a])) = undefined -- Return' a
+naiveTranslate (Bind b f) = Compute s' $ run1' f'
+    where s' = naiveTranslate (Bind b f)
+          f' a = undefined -- extractAcc $ nocomputeEval $ f $ wrapAcc a
+                 -- can't write this... 
