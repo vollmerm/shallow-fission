@@ -1,6 +1,6 @@
 # vim: nospell
-language: c
-sudo: false
+language: minimal
+sudo: required
 
 cache:
   directories:
@@ -9,7 +9,7 @@ cache:
 matrix:
   include:
     - env: GHC=7.10 LLVM=3.5
-      compiler: "#GHC 7.10"
+      compiler: "GHC 7.10"
       addons:
         apt:
           sources:
@@ -26,15 +26,14 @@ matrix:
             - g++-4.8
 
 before_install:
-  - unset CC
   - export PATH=/opt/alex/3.1.4/bin:/opt/happy/1.19.5/bin:/usr/lib/llvm-$LLVM/bin:$PATH
 
   # llvm-general-3.5 requires a newer version of gcc/g++ which understands c++11
-  # - |
-  #     if [ ${LLVM} == 3.5 ]; then
-  #       sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 20
-  #       sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 20
-  #     fi
+  - |
+      if [ ${LLVM} == 3.5 ]; then
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 20
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 20
+      fi
 
   # Fetch stack
   - mkdir $HOME/bin
@@ -44,15 +43,27 @@ before_install:
   # - ln -s stack-${GHC}.yaml stack.yaml
   - travis_retry stack setup
 
+  # Fetch CUDA
+  - travis_retry wget http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1204/x86_64/cuda-repo-ubuntu1204_${CUDA}_amd64.deb
+  - travis_retry sudo dpkg -i cuda-repo-ubuntu1204_${CUDA}_amd64.deb
+  - travis_retry sudo apt-get update -qq
+  - export CUDA_APT=${CUDA%-*}
+  - export CUDA_APT=${CUDA_APT/./-}
+  - travis_retry sudo apt-get install -y cuda-drivers cuda-core-${CUDA_APT} cuda-cudart-dev-${CUDA_APT}
+  - travis_retry sudo apt-get clean
+  - export CUDA_HOME=/usr/local/cuda-${CUDA%%-*}
+  - export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+  - export PATH=${CUDA_HOME}/bin:${PATH}
+
 install:
   - echo "$(stack exec ghc -- --version) [$(stack exec ghc -- --print-project-git-commit-id 2> /dev/null || echo '?')]"
   - stack --version
   - opt --version; true
   - llc --version; true
-  - travis_retry stack build --only-dependencies -j2
+  - travis_retry stack build --no-terminal --only-dependencies -j2
 
 script:
-  - stack build
+  - stack build --no-terminal
   - stack test
   # - stack haddock
 
