@@ -45,10 +45,10 @@ main = do
   -- can not be shared.
   F.initialise []
   ngpu  <- F.count
-  devs  <- mapM F.device [0 .. ngpu-1]
-  prps  <- mapM F.props devs
-  cc    <- mapM     (\dev     -> CUDA.create               dev     []) devs
-  pc    <- zipWithM (\dev prp -> PTX.createTargetForDevice dev prp []) devs prps
+  -- devs  <- mapM F.device [0 .. ngpu-1]
+  -- prps  <- mapM F.props devs
+  -- cc    <- mapM     (\dev     -> CUDA.create               dev     []) devs
+  -- pc    <- zipWithM (\dev prp -> PTX.createTargetForDevice dev prp []) devs prps
 
   n     <- maybeEnv "N" 20000000
   pin   <- maybeEnv "PINNED" False
@@ -69,13 +69,20 @@ main = do
   hFlush stdout
 
   t1        <- getCPUTime
-  -- !opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
-  !opts_f64 <- mkData n :: IO (Vector (Double,Double,Double))
+  !opts_f32 <- mkData n :: IO (Vector (Float,Float,Float))
+  -- !opts_f64 <- mkData n :: IO (Vector (Double,Double,Double))
   t2        <- getCPUTime
 
   printf "done! (%.2fs)\n" (P.fromIntegral (t2-t1) * 1.0e-12 :: Double)
   printf "\n"
 
+  defaultMain
+    [ bench "llvm-ptx"   $ whnf (PTX.run1 blackscholes)   opts_f32
+    , bench "llvm-cpu"   $ whnf (CPU.run1 blackscholes)   opts_f32
+    , bench "llvm-multi" $ whnf (Multi.run1 blackscholes) opts_f32
+    ]
+
+{--
   -- Grab the default context for each GPU backend. The list will not be empty
   -- (c.f. head) because if there are no devices, initialising CUDA would
   -- already have failed. Assume that device 0 is the "best" device.
@@ -115,7 +122,7 @@ main = do
             else []
       ]
     -- ]
-
+--}
 
 async :: [a -> IO (Async b)] -> [a] -> ()
 async fs xs = unsafePerformIO $! do
