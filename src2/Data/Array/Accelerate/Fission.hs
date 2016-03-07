@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE StandaloneDeriving   #-}
 
 module Data.Array.Accelerate.Fission where
 
@@ -12,19 +13,31 @@ import           Control.Monad()
 import           Data.Array.Accelerate as A hiding (Acc, Divide, Split)
 import qualified Data.Array.Accelerate as A
 --import           Data.Split
+import           Data.Typeable
 import           Prelude               as P
-import           Text.Printf()
+import           Text.Printf
+
+import Data.Array.Accelerate.Interpreter as A
 
 data Rep a where
     Return :: (Arrays a)
-           => FAcc a -> Rep (FAcc a)
+           => FAcc a
+           -> Rep (FAcc a)
+
     Bind   :: (Arrays a, Arrays b)
-           => Rep (FAcc b) -> (FAcc b -> Rep (FAcc a)) -> Rep (FAcc a)
+           => Rep (FAcc b)
+           -> (FAcc b -> Rep (FAcc a))
+           -> Rep (FAcc a)
+
     Join   :: (Arrays a, Arrays b, Arrays c)
            => (Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a))
-           -> Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a)
-    Use    :: (Arrays a)
-           => a -> Rep (FAcc a) -- avoid collapsing use with bind
+           -> Rep (FAcc b)
+           -> Rep (FAcc c)
+           -> Rep (FAcc a)
+
+    -- Use    :: (Arrays a)
+    --        => a
+    --        -> Rep (FAcc a) -- avoid collapsing use with bind
 
 
 data FAcc a where
@@ -37,6 +50,7 @@ type Acc a = Rep (FAcc a)
 -- instance Show a => Show (Rep a) where
 --     show (Return a) = printf "(Return %s)" $ show a
 --     show (Bind b f) = printf "(Bind %s %s)" (show b) (show f)
+
 fizzCompute :: Arrays a => FAcc a -> FAcc a
 fizzCompute (FAcc s as) = FAcc s $ P.map A.compute as
 
@@ -45,13 +59,13 @@ computeEval :: Rep (FAcc a) -> FAcc a
 computeEval (Return a)   = a
 computeEval (Bind b f)   = computeEval $ f $ fizzCompute (computeEval b)
 computeEval (Join f a b) = computeEval $ f a b
-computeEval (Use a)      = FAcc 0 [use a]
+-- computeEval (Use a)      = FAcc 0 [use a]
 
 nocomputeEval :: Rep (FAcc a) -> (FAcc a)
 nocomputeEval (Return a)   = a
 nocomputeEval (Bind b f)   = computeEval $ f (computeEval b)
 nocomputeEval (Join f a b) = computeEval $ f a b
-nocomputeEval (Use a)      = FAcc 0 [use a]
+-- nocomputeEval (Use a)      = FAcc 0 [use a]
 
 
 
@@ -107,10 +121,10 @@ join0 f (FAcc s (a:as)) =
     Join (fizzZipWith f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
 
 arr :: Acc (Array DIM2 Float)
-arr = Use $ A.fromList (Z :. 10 :. 10) [0..]
--- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
--- arr = Use $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
---                     use $ A.fromList (Z :. 10 :. 10) [0..]]
+-- arr = Use $ A.fromList (Z :. 10 :. 10) [0..]
+-- arr = Return $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
+arr = Return $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
+                    use $ A.fromList (Z :. 10 :. 10) [0..]]
 
 foo1 :: (Shape sh) => Acc (Array sh Float) -> Acc (Array sh Float)
 foo1 as = fizzMap (+ 1) as
@@ -138,20 +152,24 @@ partialEval (Bind b f) =
     let b' = partialEval b
     in case b' of
          Return a -> f a
-         Use a -> Bind (Use a) f
+         -- Use a -> Bind (Use a) f
          Bind b'' g -> Bind b'' $ repCompose g f
          _ -> Bind b' f
 partialEval (Join f a b) = Join f (partialEval a) (partialEval b)
-partialEval (Use a) = Use a
+-- partialEval (Use a) = Use a
 
-repCompose :: (Arrays c) => (FAcc a -> Rep (FAcc b)) -> (FAcc b -> Rep (FAcc c))
-           -> FAcc a -> Rep (FAcc c)
+repCompose
+    :: Arrays c
+    => (FAcc a -> Rep (FAcc b))
+    -> (FAcc b -> Rep (FAcc c))
+    -> FAcc a
+    -> Rep (FAcc c)
 repCompose g f a =
     case g a of
       Return a' -> f a'
       Bind b f' -> Bind (partialEval (Bind b f')) f
       Join f' a' b -> Bind (partialEval (Join f' a' b)) f
-      Use a' -> Bind (Use a') f
+      -- Use a' -> Bind (Use a') f
 
 
 -- data Rep' a where
@@ -182,6 +200,7 @@ repCompose g f a =
 
 extractAcc :: Arrays a => FAcc a -> A.Acc a
 extractAcc (FAcc _ [a]) = a
+
 wrapAcc :: Arrays a => A.Acc a -> FAcc a
 wrapAcc a = FAcc 0 [a]
 
@@ -198,4 +217,82 @@ naiveTranslate (Return (FAcc _ [a])) = undefined -- Return' a
 naiveTranslate (Bind b f) = Compute s' $ run1' f'
     where s' = naiveTranslate (Bind b f)
           f' a = undefined -- extractAcc $ nocomputeEval $ f $ wrapAcc a
-                 -- can't write this... 
+                 -- can't write this...
+
+
+
+-- Representation where we have selected which chunking strategy to use.
+--
+data S a where
+  SBind :: (Arrays a, Arrays b)
+        => S (A.Acc a)
+        -> (A.Acc a -> A.Acc b)
+        -> S (A.Acc b)
+
+  SJoin :: (Arrays a, Arrays b, Arrays c)
+        => (A.Acc a -> A.Acc b -> A.Acc c)
+        -> S (A.Acc a)
+        -> S (A.Acc b)
+        -> S (A.Acc c)
+
+  SReturn :: Arrays a         -- TLM: look into removing Return from the language
+          => A.Acc a
+          -> S (A.Acc a)
+
+  SFork :: (Arrays a, Arrays b)
+        => S (A.Acc a)
+        -> S (A.Acc b)
+        -> S (A.Acc a, A.Acc b)
+
+  SUse  :: (Arrays a, Show a)
+        => a
+        -> S (A.Acc a)
+
+instance Show (S a) where
+  show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
+  show (SJoin f x y) = printf "(SJoin (%s) %s %s)" (show f) (show x) (show y)
+  show (SReturn x)   = printf "(SReturn %s)" (show x)
+  show (SUse a)      = printf "(SUse %s)" (show a)
+  show (SFork a b)   = printf "(SFork %s %s)" (show a) (show b)
+
+
+schedule :: Rep (FAcc a) -> S (A.Acc a)
+schedule (Return f)   = SReturn (extractAcc f)  -- TLM: don't want these!
+schedule (Bind x f)   = SBind (schedule x) (extractAcc . computeEval . f . wrapAcc)
+schedule (Join f x y) = SJoin (\x' y' -> extractAcc $ computeEval (f (Return $ wrapAcc x') (Return $ wrapAcc y')))
+                              (schedule x)
+                              (schedule y)
+
+
+-- Representation with the choice of executor embedded in it.
+--
+data E a where
+  EBind :: (Arrays a, Arrays b)
+        => E a
+        -> (a -> b)
+        -> E b
+
+  EJoin :: (Arrays a, Arrays b, Arrays c)
+        => (a -> b -> c)
+        -> E a
+        -> E b
+        -> E c
+
+  -- EFork :: Arrays a
+  --       => [E a]
+  --       -> E a
+
+  EUse  :: Arrays a
+        => a
+        -> E a
+
+run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
+run2 f x y = run1 (A.uncurry f) (x,y)
+
+-- In this step, assign each operation to a specific backend
+--
+exec :: S (A.Acc a) -> E a
+exec (SJoin f x y) = EJoin (run2 f) (exec x) (exec y)
+exec (SBind x f)   = EBind (exec x) (run1 f)
+exec (SUse x)      = EUse x
+
