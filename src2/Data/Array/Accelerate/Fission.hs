@@ -297,7 +297,9 @@ run2 f x y = run1 (A.uncurry f) (x,y)
 -- exec (SUse x)      = EUse x
 
 
-
+-- we talked about this... how do we handle cases where we need to know
+-- if something was split?
+data BranchCond = IsSplit | IsNotSplit -- ...
 
 data Emb a where
     ECompute :: (Arrays a, Arrays b)
@@ -306,12 +308,14 @@ data Emb a where
              -> Emb a
 
     -- Do we need both ECombine and EJoin?
+    -- So far this is used in zipWith
     EJoin    :: (Arrays a, Arrays b, Arrays c)
              => (A.Acc b -> A.Acc c -> A.Acc a)
              -> Emb b
              -> Emb c
              -> Emb a
 
+    -- Unlike Join, only takes one argument
     ECombine :: (Arrays a)
              => (A.Acc a -> A.Acc a -> A.Acc a)
              -> Emb a
@@ -319,6 +323,20 @@ data Emb a where
                
     EUse     :: (Arrays a)
              => a
+             -> Emb a
+
+    EBranch  :: (Arrays a, Arrays b)
+             => BranchCond
+             -> Emb b
+             -> Emb a -- then
+             -> Emb a -- else
+             -> Emb a
+
+    -- Do different things to each split half (?)
+    EEach    :: (Arrays a, Arrays b)
+             => Emb b
+             -> (A.Acc b -> A.Acc a)
+             -> (A.Acc b -> A.Acc a)
              -> Emb a
 
 
@@ -381,8 +399,8 @@ ezipWith :: forall a b c sh. (Shape sh, Elt a, Elt b, Elt c)
          -> Emb (Array sh a)
          -> Emb (Array sh b)
          -> Emb (Array sh c)
-ezipWith f a1 a2 = ECompute a' f'
-    where a' = EJoin A.zip a1 a2
+ezipWith f a1 a2 = ECompute a' f' 
+    where a' = EJoin A.zip a1 a2 -- This *won't* get fused right now (!)
           f' = A.map (\a -> f (A.fst a) (A.snd a))
 
 efold :: forall sh e. (Shape sh, Elt e)
