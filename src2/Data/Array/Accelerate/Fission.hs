@@ -321,6 +321,22 @@ data Emb a where
              -> Emb a
 
 
+data Sched a where
+    SCompute :: (Arrays a, Arrays b)
+             => Sched b
+             -> (b -> a)
+             -> Sched a
+
+    SJoin    :: (Arrays a, Arrays b, Arrays c)
+             => (b -> c -> a)
+             -> Sched b
+             -> Sched c
+             -> Sched a
+                
+    SUse     :: (Arrays a)
+             => a
+             -> Sched a
+
 instance Show (Emb a) where
     show (ECompute b f) = printf "(ECompute %s %s)" (show b) (show f)
     show (EJoin f a b) = printf "(EJoin %s %s %s)" (show f) (show a) (show b)
@@ -335,6 +351,17 @@ esimplify (ECompute b f) =
       b' -> ECompute b' f
 esimplify (EJoin f a b) = EJoin f (esimplify a) (esimplify b)
 esimplify (ECombine f a) = ECombine f (esimplify a)
+
+eeval :: Emb a -> A.Acc a
+eeval (EUse a) = A.use a
+eeval (ECompute b f) = f $ eeval b
+eeval (EJoin f a b) = f (eeval a) (eeval b)
+eeval (ECombine f a) = eeval a -- f (eeval a)
+
+toSched :: Emb a -> Sched a
+toSched (EUse a) = SUse a
+toSched (ECompute b f) = SCompute (toSched b) $ run1 f
+toSched _ = undefined
     
 emap :: (Shape sh, Elt a, Elt b)
      => (Exp a -> Exp b)
