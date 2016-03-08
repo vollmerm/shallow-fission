@@ -351,6 +351,11 @@ data Sched a where
              -> Sched b
              -> Sched c
              -> Sched a
+
+    SCombine :: (Arrays a)
+             => (a -> a -> a)
+             -> Sched a
+             -> Sched a
                 
     SUse     :: (Arrays a)
              => a
@@ -362,7 +367,12 @@ instance Show (Emb a) where
     show (ECombine f a) = printf "(ECombine %s %s)" (show f) (show a)
     show (EUse a) = printf "(EUse)" 
 
-
+instance Show (Sched a) where
+    show (SCompute b f) = printf "(SCompute %s f)" (show b) 
+    show (SJoin f a b) = printf "(SJoin f %s %s)"  (show a) (show b)
+    show (SCombine f a) = printf "(SCombine f %s)" (show a)
+    show (SUse a) = printf "(SUse)" 
+    
 
 -- This should maybe try to fuse EJoins into EComputes, if I can make that
 -- work out.
@@ -381,11 +391,17 @@ eeval (ECompute b f) = f $ eeval b
 eeval (EJoin f a b) = f (eeval a) (eeval b)
 eeval (ECombine f a) = eeval a -- f (eeval a)
 
-toSched :: Emb a -> Sched a
-toSched (EUse a) = SUse a
-toSched (ECompute b f) = SCompute (toSched b) $ run1 f
-toSched (EJoin f a b) = undefined
-toSched _ = undefined
+toSched1 :: Emb a -> Sched a
+toSched1 (EUse a) = SUse a
+toSched1 (ECompute b f) = SCompute (toSched1 b) (run1 f)
+toSched1 (EJoin f a b) = SJoin (run2 f) (toSched1 a) (toSched1 b)
+toSched1 (ECombine f a) = SCombine (run2 f) (toSched1 a)
+
+interpSched :: (Arrays a) => Sched a -> a
+interpSched (SUse a) = a
+interpSched (SCompute b f) = f (interpSched b)
+interpSched (SJoin f a b) = f (interpSched a) (interpSched b)
+interpSched (SCombine _f a) = (interpSched a)
     
 emap :: (Shape sh, Elt a, Elt b)
      => (Exp a -> Exp b)
