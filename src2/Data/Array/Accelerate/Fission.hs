@@ -286,8 +286,8 @@ naiveTranslate (Bind b f) = Compute s' $ run1' f'
 --         => a
 --         -> E a
 
--- run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
--- run2 f x y = run1 (A.uncurry f) (x,y)
+run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
+run2 f x y = run1 (A.uncurry f) (x,y)
 
 -- -- In this step, assign each operation to a specific backend
 -- --
@@ -305,6 +305,7 @@ data Emb a where
              -> (A.Acc b -> A.Acc a)
              -> Emb a
 
+    -- Do we need both ECombine and EJoin?
     EJoin    :: (Arrays a, Arrays b, Arrays c)
              => (A.Acc b -> A.Acc c -> A.Acc a)
              -> Emb b
@@ -343,6 +344,10 @@ instance Show (Emb a) where
     show (ECombine f a) = printf "(ECombine %s %s)" (show f) (show a)
     show (EUse a) = printf "(EUse)" 
 
+
+
+-- This should maybe try to fuse EJoins into EComputes, if I can make that
+-- work out.
 esimplify :: Emb a -> Emb a
 esimplify (EUse a) = EUse a
 esimplify (ECompute b f) =
@@ -361,6 +366,7 @@ eeval (ECombine f a) = eeval a -- f (eeval a)
 toSched :: Emb a -> Sched a
 toSched (EUse a) = SUse a
 toSched (ECompute b f) = SCompute (toSched b) $ run1 f
+toSched (EJoin f a b) = undefined
 toSched _ = undefined
     
 emap :: (Shape sh, Elt a, Elt b)
