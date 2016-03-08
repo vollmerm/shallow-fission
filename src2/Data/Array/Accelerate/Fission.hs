@@ -221,78 +221,157 @@ naiveTranslate (Bind b f) = Compute s' $ run1' f'
 
 
 
--- Representation where we have selected which chunking strategy to use.
---
-data S a where
-  SBind :: (Arrays a, Arrays b)
-        => S (A.Acc a)
-        -> (A.Acc a -> A.Acc b)
-        -> S (A.Acc b)
+-- -- Representation where we have selected which chunking strategy to use.
+-- --
+-- data S a where
+--   SBind :: (Arrays a, Arrays b)
+--         => S (A.Acc a)
+--         -> (A.Acc a -> A.Acc b)
+--         -> S (A.Acc b)
 
-  SJoin :: (Arrays a, Arrays b, Arrays c)
-        => (A.Acc a -> A.Acc b -> A.Acc c)
-        -> S (A.Acc a)
-        -> S (A.Acc b)
-        -> S (A.Acc c)
+--   SJoin :: (Arrays a, Arrays b, Arrays c)
+--         => (A.Acc a -> A.Acc b -> A.Acc c)
+--         -> S (A.Acc a)
+--         -> S (A.Acc b)
+--         -> S (A.Acc c)
 
-  SReturn :: Arrays a         -- TLM: look into removing Return from the language
-          => A.Acc a
-          -> S (A.Acc a)
+--   SReturn :: Arrays a         -- TLM: look into removing Return from the language
+--           => A.Acc a
+--           -> S (A.Acc a)
 
-  SFork :: (Arrays a, Arrays b)
-        => S (A.Acc a)
-        -> S (A.Acc b)
-        -> S (A.Acc a, A.Acc b)
+--   SFork :: (Arrays a, Arrays b)
+--         => S (A.Acc a)
+--         -> S (A.Acc b)
+--         -> S (A.Acc a, A.Acc b)
 
-  SUse  :: (Arrays a, Show a)
-        => a
-        -> S (A.Acc a)
+--   SUse  :: (Arrays a, Show a)
+--         => a
+--         -> S (A.Acc a)
 
-instance Show (S a) where
-  show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
-  show (SJoin f x y) = printf "(SJoin (%s) %s %s)" (show f) (show x) (show y)
-  show (SReturn x)   = printf "(SReturn %s)" (show x)
-  show (SUse a)      = printf "(SUse %s)" (show a)
-  show (SFork a b)   = printf "(SFork %s %s)" (show a) (show b)
-
-
-schedule :: Rep (FAcc a) -> S (A.Acc a)
-schedule (Return f)   = SReturn (extractAcc f)  -- TLM: don't want these!
-schedule (Bind x f)   = SBind (schedule x) (extractAcc . computeEval . f . wrapAcc)
-schedule (Join f x y) = SJoin (\x' y' -> extractAcc $ computeEval (f (Return $ wrapAcc x') (Return $ wrapAcc y')))
-                              (schedule x)
-                              (schedule y)
+-- instance Show (S a) where
+--   show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
+--   show (SJoin f x y) = printf "(SJoin (%s) %s %s)" (show f) (show x) (show y)
+--   show (SReturn x)   = printf "(SReturn %s)" (show x)
+--   show (SUse a)      = printf "(SUse %s)" (show a)
+--   show (SFork a b)   = printf "(SFork %s %s)" (show a) (show b)
 
 
--- Representation with the choice of executor embedded in it.
---
-data E a where
-  EBind :: (Arrays a, Arrays b)
-        => E a
-        -> (a -> b)
-        -> E b
+-- schedule :: Rep (FAcc a) -> S (A.Acc a)
+-- schedule (Return f)   = SReturn (extractAcc f)  -- TLM: don't want these!
+-- schedule (Bind x f)   = SBind (schedule x) (extractAcc . computeEval . f . wrapAcc)
+-- schedule (Join f x y) = SJoin (\x' y' -> extractAcc $ computeEval (f (Return $ wrapAcc x') (Return $ wrapAcc y')))
+--                               (schedule x)
+--                               (schedule y)
 
-  EJoin :: (Arrays a, Arrays b, Arrays c)
-        => (a -> b -> c)
-        -> E a
-        -> E b
-        -> E c
 
-  -- EFork :: Arrays a
-  --       => [E a]
-  --       -> E a
+-- -- Representation with the choice of executor embedded in it.
+-- --
+-- data E a where
+--   EBind :: (Arrays a, Arrays b)
+--         => E a
+--         -> (a -> b)
+--         -> E b
 
-  EUse  :: Arrays a
-        => a
-        -> E a
+--   EJoin :: (Arrays a, Arrays b, Arrays c)
+--         => (a -> b -> c)
+--         -> E a
+--         -> E b
+--         -> E c
 
-run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
-run2 f x y = run1 (A.uncurry f) (x,y)
+--   -- EFork :: Arrays a
+--   --       => [E a]
+--   --       -> E a
 
--- In this step, assign each operation to a specific backend
---
-exec :: S (A.Acc a) -> E a
-exec (SJoin f x y) = EJoin (run2 f) (exec x) (exec y)
-exec (SBind x f)   = EBind (exec x) (run1 f)
-exec (SUse x)      = EUse x
+--   EUse  :: Arrays a
+--         => a
+--         -> E a
 
+-- run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
+-- run2 f x y = run1 (A.uncurry f) (x,y)
+
+-- -- In this step, assign each operation to a specific backend
+-- --
+-- exec :: S (A.Acc a) -> E a
+-- exec (SJoin f x y) = EJoin (run2 f) (exec x) (exec y)
+-- exec (SBind x f)   = EBind (exec x) (run1 f)
+-- exec (SUse x)      = EUse x
+
+
+
+
+data Emb a where
+    ECompute :: (Arrays a, Arrays b)
+             => Emb b
+             -> (A.Acc b -> A.Acc a)
+             -> Emb a
+
+    EJoin    :: (Arrays a, Arrays b, Arrays c)
+             => (A.Acc b -> A.Acc c -> A.Acc a)
+             -> Emb b
+             -> Emb c
+             -> Emb a
+
+    ECombine :: (Arrays a)
+             => (A.Acc a -> A.Acc a -> A.Acc a)
+             -> Emb a
+             -> Emb a
+               
+    EUse     :: (Arrays a)
+             => a
+             -> Emb a
+
+
+instance Show (Emb a) where
+    show (ECompute b f) = printf "(ECompute %s %s)" (show b) (show f)
+    show (EJoin f a b) = printf "(EJoin %s %s %s)" (show f) (show a) (show b)
+    show (ECombine f a) = printf "(ECombine %s %s)" (show f) (show a)
+    show (EUse a) = printf "(EUse)" 
+
+esimplify :: Emb a -> Emb a
+esimplify (EUse a) = EUse a
+esimplify (ECompute b f) =
+    case (esimplify b) of
+      ECompute b' g -> esimplify (ECompute b' (f . g))
+      b' -> ECompute b' f
+esimplify (EJoin f a b) = EJoin f (esimplify a) (esimplify b)
+esimplify (ECombine f a) = ECombine f (esimplify a)
+    
+emap :: (Shape sh, Elt a, Elt b)
+     => (Exp a -> Exp b)
+     -> Emb (Array sh a)
+     -> Emb (Array sh b)
+emap f a = ECompute a f'
+    where f' = A.map f
+
+ezipWith :: forall a b c sh. (Shape sh, Elt a, Elt b, Elt c)
+         => (Exp a -> Exp b -> Exp c)
+         -> Emb (Array sh a)
+         -> Emb (Array sh b)
+         -> Emb (Array sh c)
+ezipWith f a1 a2 = ECompute a' f'
+    where a' = EJoin A.zip a1 a2
+          f' = A.map (\a -> f (A.fst a) (A.snd a))
+
+efold :: forall sh e. (Shape sh, Elt e)
+      => (Exp e -> Exp e -> Exp e)
+      -> Exp e
+      -> Emb (Array (sh :. Int) e)
+      -> Emb (Array sh e)
+efold f z a = combine' f $ ECompute a f' -- How to we handle vertical splits?
+    where f' = A.fold f z
+
+combine' :: (Shape ix, Elt a)
+         => (Exp a -> Exp a -> Exp a)
+         -> Emb (Array ix a)
+         -> Emb (Array ix a)
+combine' f = ECombine (A.zipWith f)
+
+
+earr :: Emb (Array DIM2 Float)
+earr = EUse (A.fromList (Z :. 10 :. 10) [0..])
+
+efoo1 :: (Shape sh) => Emb (Array sh Float) -> Emb (Array sh Float)
+efoo1 as = emap (+ 1) as
+
+efoo2 :: (Shape sh) => Emb (Array sh Float) -> Emb (Array sh Float)
+efoo2 as = emap (* 2) (efoo1 as)
