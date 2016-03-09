@@ -325,6 +325,10 @@ data Emb a where
              => a
              -> Emb a
 
+    EUse2    :: (Arrays a)
+             => (a,a)
+             -> Emb a
+
     EBranch  :: (Arrays a, Arrays b)
              => BranchCond
              -> Emb b
@@ -360,24 +364,43 @@ data Sched a where
     SUse     :: (Arrays a)
              => a
              -> Sched a
+                
+    SUse2    :: (Arrays a)
+             => (a,a)
+             -> Sched a
+
+    SSplit   :: (Arrays a)
+             => Sched a
+             -> Double
+             -> Sched a
+
+    SEach    :: (Arrays a, Arrays b)
+             => Sched b
+             -> (b -> a)
+             -> (b -> a)
+             -> Sched a
 
 instance Show (Emb a) where
     show (ECompute b f) = printf "(ECompute %s %s)" (show b) (show f)
     show (EJoin f a b) = printf "(EJoin %s %s %s)" (show f) (show a) (show b)
     show (ECombine f a) = printf "(ECombine %s %s)" (show f) (show a)
-    show (EUse a) = printf "(EUse)" 
+    show (EUse a) = printf "(EUse)"
+    show (EUse2 _a) = printf "(EUse2)"
 
 instance Show (Sched a) where
     show (SCompute b f) = printf "(SCompute %s f)" (show b) 
     show (SJoin f a b) = printf "(SJoin f %s %s)"  (show a) (show b)
     show (SCombine f a) = printf "(SCombine f %s)" (show a)
-    show (SUse a) = printf "(SUse)" 
+    show (SUse a) = printf "(SUse)"
+    show (SUse2 _a) = printf "(SUse2)"
+    show (SEach b _ _) = printf "(SEach %s f f)" (show b)
     
 
 -- This should maybe try to fuse EJoins into EComputes, if I can make that
 -- work out.
 esimplify :: Emb a -> Emb a
 esimplify (EUse a) = EUse a
+esimplify (EUse2 a) = EUse2 a
 esimplify (ECompute b f) =
     case (esimplify b) of
       ECompute b' g -> esimplify (ECompute b' (f . g))
@@ -397,11 +420,38 @@ toSched1 (ECompute b f) = SCompute (toSched1 b) (run1 f)
 toSched1 (EJoin f a b) = SJoin (run2 f) (toSched1 a) (toSched1 b)
 toSched1 (ECombine f a) = SCombine (run2 f) (toSched1 a)
 
-interpSched :: (Arrays a) => Sched a -> a
-interpSched (SUse a) = a
-interpSched (SCompute b f) = f (interpSched b)
-interpSched (SJoin f a b) = f (interpSched a) (interpSched b)
-interpSched (SCombine _f a) = (interpSched a)
+toSched2 :: Emb a -> Sched a
+toSched2 (EUse a) = SSplit (SUse a) 0.5
+toSched2 (EUse2 (a1,a2)) = SUse2 (a1,a2)
+toSched2 (ECompute b f) = SEach (toSched2 b) (run1 f) (run1 f)
+toSched2 (EJoin f a b) = SJoin (run2 f) (toSched2 a) (toSched2 b)
+toSched2 (ECombine f a) = SCombine (run2 f) (toSched1 a)
+
+data SchedArray a = One a | Two (a,a)
+                  deriving Show
+
+interpSched :: (Arrays a) => Sched a -> SchedArray a
+interpSched (SUse a) = One a
+interpSched (SCompute b f) =
+    case (interpSched b) of
+      One a -> One $ f a
+      _ -> error "Can't handle this"
+interpSched (SJoin f a b) =
+    case (interpSched a, interpSched b) of
+      (One a, One b) -> One $ f a b
+      _ -> error "Can't handle this"
+interpSched (SCombine f a) =
+    case (interpSched a) of
+      One a -> One a
+      Two (a1,a2) -> One $ f a1 a2
+interpSched (SEach b f1 f2) =
+    case (interpSched b) of
+      One _ -> error "Can't handle this"
+      Two (a1,a2) -> Two (f1 a1, f2 a2)
+interpSched (SUse2 (a1,a2)) = Two (a1,a2)
+interpSched (SSplit a d) = undefined
+
+
     
 emap :: (Shape sh, Elt a, Elt b)
      => (Exp a -> Exp b)
@@ -436,6 +486,9 @@ combine' f = ECombine (A.zipWith f)
 
 earr :: Emb (Array DIM2 Float)
 earr = EUse (A.fromList (Z :. 10 :. 10) [0..])
+
+earr2 :: Emb (Array DIM2 Float)
+earr2 = EUse2 ((A.fromList (Z :. 10 :. 10) [0..]),(A.fromList (Z :. 10 :. 10) [0..]))
 
 efoo1 :: (Shape sh) => Emb (Array sh Float) -> Emb (Array sh Float)
 efoo1 as = emap (+ 1) as
