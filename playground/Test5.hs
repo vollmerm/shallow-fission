@@ -260,7 +260,9 @@ data E a where
   EJoin :: (Arrays a, Arrays b) => E a -> E b -> (a -> b -> c) -> E c
 
 run2 :: (Arrays a, Arrays b, Arrays c) => (Acc a -> Acc b -> Acc c) -> (a -> b -> c)
-run2 f x y = run1 (A.uncurry f) (x,y)
+run2 f = \x y -> f' (x,y)
+  where
+    f' = run1 (A.uncurry f)
 
 
 -- In this step, assign each operation to a specific backend
