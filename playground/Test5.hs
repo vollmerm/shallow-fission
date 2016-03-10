@@ -9,7 +9,8 @@
 {-# LANGUAGE TypeOperators             #-}
 {-# LANGUAGE TypeSynonymInstances      #-}
 
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -fno-warn-unused-imports     #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 import Data.Array.Accelerate              as A hiding ( Split )
 import qualified Data.Array.Accelerate    as A
@@ -99,9 +100,9 @@ pfold :: forall sh e. (Inf sh, Shape sh, Elt e)
 pfold f z (Arr dx nx gx) =
   let piece i = Bind (gx i) (A.fold f z)
       with    = case dx of
-                  0                               -> A.zipWith f
-                  1 | Inf1 <- inf (undefined::sh) -> (A.++)
-                  2 | Inf2 <- inf (undefined::sh) -> concat2
+                  1                               -> A.zipWith f
+                  2 | Inf1 <- inf (undefined::sh) -> (A.++)
+                  3 | Inf2 <- inf (undefined::sh) -> concat2
                   _                               -> error "pfold: unhandeled dimension"
   in
   Arr 0 1 (\_ -> P.foldl1 (\x y -> Join x y with) -- decide splits??
@@ -152,30 +153,62 @@ stune (SJoin x y f)         = SJoin (stune x) (stune y) f
 stune x                     = x
 
 
+-- Schedule a computation for execution
+--
 schedule
-    :: (Inf sh, Shape sh, Elt e)
+    :: forall sh e. (Inf sh, Shape sh, Elt e)
     => Arr (Acc (Array sh e))
     -> S   (Acc (Array sh e))
 schedule (Arr _  1  gx) = sout (gx 1)
--- schedule (Arr dx nx gx) = undefined
+schedule (Arr dx nx gx) =
+  let
+      pieces    = P.map gx [1 .. nx]
+      combine f = P.foldl1 (\x y -> Join x y f) pieces
+  in
+  sout $ case dx of
+           1 | Inf1 <- inf (undefined::sh) -> combine (A.++)
+           2 | Inf2 <- inf (undefined::sh) -> combine concat2
+           _                               -> error "schedule: unhandled dimension"
 
--- schedule :: Arr (Acc a) -> S (Acc b)
--- schedule = undefined
+
+-- Decide how to split the input array over the given executor.
+--
+schedule1
+    :: forall sh sh' a b. (Inf sh, Inf sh', Shape sh, Shape sh', Slice sh, Elt a, Elt b)
+    => (Arr (Acc (Array sh a)) -> Arr (Acc (Array sh' b)))
+    -> Array sh a
+    -> S (Acc (Array sh' b))
+schedule1 f a
+  | Inf0 <- inf (undefined::sh) = schedule (f (Arr 0 1 (\_ -> Use a)))
+  | Inf1 <- inf (undefined::sh) = schedule (f (use1 0.5 a))     -- TODO: pick random split point
+  | Inf2 <- inf (undefined::sh) = schedule (f (use2 0.5 a))     -- TODO: choose to split either up/down or left/right
 
 
--- schedule1
---     :: forall sh e b. (Inf sh, Shape sh, Elt e, Arrays b)
---     => (Arr (Acc (Array sh e)) -> Arr (Acc b))
---     -> Acc (Array sh e)
---     -> S (Acc b)
--- schedule1 f a
---   | Inf0 <- inf (undefined::sh) = schedule (f (Arr 0 1 (\_ -> Return a)))
---   | Inf1 <- inf (undefined::sh) =
---       let (x,y) = split1 0.5 a      -- TODO: pick random split point
---           arr 0 = Return x
---           arr 1 = Return y
---       in
---       schedule (f (Arr 0 2 arr))
+-- TODO: potentially split the array on the host (by, e.g., running with the
+--       LLVM CPU backend) so that we don't have to upload the entire array to
+--       the device to then immediately slice out a small portion.
+--
+use1 :: (Shape sh, Slice sh, Elt e)
+     => Double
+     -> Array (sh :. Int) e
+     -> Arr (Acc (Array (sh :. Int) e))
+use1 p a =
+  let xy    = split1 p
+      arr 1 = Bind (Use a) (P.fst . xy)
+      arr 2 = Bind (Use a) (P.snd . xy)
+  in
+  Arr 1 2 arr
+
+use2 :: (Shape sh, Slice sh, Elt e)
+     => Double
+     -> Array (sh :. Int :. Int) e
+     -> Arr (Acc (Array (sh :. Int :. Int) e))
+use2 p a =
+  let xy    = split2 p
+      arr 1 = Bind (Use a) (P.fst . xy)
+      arr 2 = Bind (Use a) (P.snd . xy)
+  in
+  Arr 2 2 arr
 
 
 --------------------------------------------------------------------------------
@@ -260,6 +293,8 @@ data Inf' sh where
   Inf1 :: (Shape sh, Slice sh) => Inf' (sh :. Int)
   Inf2 :: (Shape sh, Slice sh) => Inf' (sh :. Int :. Int)
 
+deriving instance Show (Inf' sh)
+
 class Inf sh where
   inf :: sh -> Inf' sh
 
@@ -287,10 +322,10 @@ p2 =
       arr 1 = Bind (Use p0) (P.fst . lr)
       arr 2 = Bind (Use p0) (P.snd . lr)
   in
-  Arr 0 2 arr
+  Arr 1 2 arr
 
 p3 :: Array DIM2 Float
-p3 = fromList (Z :. 4 :. 10) [0,0.1..]
+p3 = fromList (Z :. 5 :. 20) [0,0.1..]
 
 p4 :: Arr (Acc (Array DIM2 Float))
 p4 =
@@ -298,18 +333,26 @@ p4 =
       arr 1 = Bind (Use p3) (P.fst . tb)
       arr 2 = Bind (Use p3) (P.snd . tb)
   in
-  Arr 1 2 arr
+  Arr 2 2 arr
 
 p5 :: Arr (Acc (Array DIM2 Float))
 p5 =
-  let lr    = split1 0.8
-      arr 1 = Bind (Use p3) (P.fst . lr)
-      arr 2 = Bind (Use p3) (P.snd . lr)
+  let llrr  = split1 0.5
+      ll    = split1 0.5 . P.fst . llrr
+      rr    = split1 0.5 . P.snd . llrr
+      arr 1 = Bind (Use p3) (P.fst . ll)
+      arr 2 = Bind (Use p3) (P.snd . ll)
+      arr 3 = Bind (Use p3) (P.fst . rr)
+      arr 4 = Bind (Use p3) (P.snd . rr)
   in
-  Arr 0 2 arr
+  Arr 1 4 arr
 
 
 t0 = run $ A.fold (+) 0 (use p3)
 t1 = eval . exec . stune . schedule $ pfold (+) 0 p4
 t2 = eval . exec         . schedule $ pfold (+) 0 p5
+
+
+t3 = run $ A.map (*2) (use p0)
+t4 = eval . exec $ schedule1 (pmap (*2)) p0
 
