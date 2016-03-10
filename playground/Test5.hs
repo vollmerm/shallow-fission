@@ -98,14 +98,6 @@ pfold f z (Arr dx nx gx) =
                $ P.map piece [1 .. nx])
 
 
-concatV
-    :: forall sh e. (Shape sh, Slice sh, Elt e)
-    => Acc (Array (sh :. Int :. Int) e)
-    -> Acc (Array (sh :. Int :. Int) e)
-    -> Acc (Array (sh :. Int :. Int) e)
-concatV = undefined
-
-
 --------------------------------------------------------------------------------
 -- LEVEL 2: Fission decision baked into a data structure
 --------------------------------------------------------------------------------
@@ -138,13 +130,28 @@ schedule (Arr dx nx gx) = undefined
 -- LEVEL 3: Execution (backend) decision baked into data structure
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- Utilities
+--------------------------------------------------------------------------------
+
+concatV
+    :: forall sh e. (Shape sh, Slice sh, Elt e)
+    => Acc (Array (sh :. Int :. Int) e)
+    -> Acc (Array (sh :. Int :. Int) e)
+    -> Acc (Array (sh :. Int :. Int) e)
+concatV xs ys =
+  let sh1 :. xj :. xi = unlift (shape xs)  :: Exp sh :. Exp Int :. Exp Int
+      sh2 :. yj :. yi = unlift (shape ys)  :: Exp sh :. Exp Int :. Exp Int
+  in
+  generate (A.lift $ (sh1 `intersect` sh2) :. (xj + yj) :. (min xi yi))
+           (\ix -> let sh :. j :. i = unlift ix :: Exp sh :. Exp Int :. Exp Int
+                   in  j A.<* xj ? (xs ! ix, ys ! A.lift (sh :. (j-xj) :. i)))
 
 --------------------------------------------------------------------------------
 -- Tests
 --------------------------------------------------------------------------------
 
-
-xs, ys :: Vector Int
-xs = [0..10]
-ys = [1,3..15]
+p0, p1 :: Vector Int
+p0 = [0..10]
+p1 = [1,3..15]
 
