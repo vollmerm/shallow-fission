@@ -39,12 +39,12 @@ data Out a where
   -- Return :: a -> Out a
   Use    :: a -> Out (Acc a)
   --
-  Bind   :: (Arrays a, Show a)
+  Bind   :: (Show a, Arrays a)
          => Out (Acc a)
          -> (Acc a -> b)
          -> Out b
   --
-  Join   :: (Arrays a, Arrays b, Show a, Show b)
+  Join   :: (Show a, Show b, Arrays a, Arrays b)
          => Out (Acc a)                 -- evaluate 'a' and 'b' to completion...
          -> Out (Acc b)                 -- ...possibly on different devices
          -> (Acc a -> Acc b -> c)       -- pass both along to some subcomputation
@@ -53,8 +53,46 @@ data Out a where
 data Arr a where
   Arr :: Int            -- split dimension
       -> Int            -- number of pieces (n)
-      -> (Int -> Out a) -- generator for each piece [1..n]
+      -> (Int -> Out a) -- generator for each piece [0 .. n-1]
       -> Arr a
+
+
+psplit1
+  :: (Shape sh, Slice sh, Elt e)
+  => Double
+  -> Arr (Acc (Array (sh :. Int) e))
+  -> Arr (Acc (Array (sh :. Int) e))
+psplit1 p (Arr dx nx gx)
+  | dx == 1 || nx == 1
+  = let gx' i | m == 0    = Bind (gx n) (P.fst . split1 p)
+              | otherwise = Bind (gx n) (P.snd . split1 p)
+              where
+                (n,m) = divMod i 2
+    in
+    Arr 1 (nx*2) gx'
+psplit1 _ _
+  = error "psplit1: can't recursively subdivide on different dimensions ):"
+
+
+
+-- This forces the computation over two pieces, but instead we should really
+-- leave that up to the schedule/tune phase.
+--
+pgenerate
+    :: forall sh e. (Inf sh, Shape sh, Elt e)
+    => Exp sh
+    -> (Exp sh -> Exp e)
+    -> Arr (Acc (Array sh e))
+pgenerate sh f =
+  let
+      dummy :: Scalar ()
+      dummy = fromList Z [()]
+      --
+      arr = Arr 0 1 (\_ -> Bind (Use dummy) (\_ -> A.generate sh f))
+  in
+  case inf (undefined::sh) of
+    Inf1 -> psplit1 0.5 arr
+    _    -> arr
 
 
 pzipWith
@@ -106,7 +144,7 @@ pfold f z (Arr dx nx gx) =
                   _                               -> error "pfold: unhandeled dimension"
   in
   Arr 0 1 (\_ -> P.foldl1 (\x y -> Join x y with) -- decide splits??
-               $ P.map piece [1 .. nx])
+               $ P.map piece [0 .. nx-1])
 
 
 -- arr :: (Shape sh, Elt e) => Out (Acc (Array sh e)) -> Arr (Acc (Array sh e))
@@ -124,16 +162,17 @@ pfold f z (Arr dx nx gx) =
 
 data S a where
   SUse    :: a -> S (Acc a)
+  SBind   :: (Show a, Arrays a) => S (Acc a) -> (Acc a -> b) -> S b
+  SJoin   :: (Show a, Show b, Arrays a, Arrays b) => S (Acc a) -> S (Acc b) -> (Acc a -> Acc b -> c) -> S c
+
   -- SReturn :: a -> S a
-  SBind   :: (Arrays a, Show a) => S (Acc a) -> (Acc a -> b) -> S b
-  SJoin   :: (Arrays a, Arrays b, Show a, Show b) => S (Acc a) -> S (Acc b) -> (Acc a -> Acc b -> c) -> S c
   -- SSplit  :: S (Acc a) -> (Acc a -> S b) -> (Acc a -> S c) -> (b -> c -> d) -> S d
 
 instance (Show a, Arrays a) => Show (S (Acc a)) where
   show (SUse x)      = printf "(SUse %s)" (show x)
-  -- show (SReturn x)   = printf "(SReturn %s)" (show x)
   show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
   show (SJoin x y f) = printf "(SJoin %s %s (%s))" (show x) (show y) (show f)
+  -- show (SReturn x)   = printf "(SReturn %s)" (show x)
 
 
 -- Convert an Out to an S
@@ -162,7 +201,7 @@ schedule
 schedule (Arr _  1  gx) = sout (gx 1)
 schedule (Arr dx nx gx) =
   let
-      pieces    = P.map gx [1 .. nx]
+      pieces    = P.map gx [0 .. nx-1]
       combine f = P.foldl1 (\x y -> Join x y f) pieces
   in
   sout $ case dx of
@@ -194,8 +233,8 @@ use1 :: (Shape sh, Slice sh, Elt e)
      -> Arr (Acc (Array (sh :. Int) e))
 use1 p a =
   let xy    = split1 p
-      arr 1 = Bind (Use a) (P.fst . xy)
-      arr 2 = Bind (Use a) (P.snd . xy)
+      arr 0 = Bind (Use a) (P.fst . xy)
+      arr 1 = Bind (Use a) (P.snd . xy)
   in
   Arr 1 2 arr
 
@@ -205,8 +244,8 @@ use2 :: (Shape sh, Slice sh, Elt e)
      -> Arr (Acc (Array (sh :. Int :. Int) e))
 use2 p a =
   let xy    = split2 p
-      arr 1 = Bind (Use a) (P.fst . xy)
-      arr 2 = Bind (Use a) (P.snd . xy)
+      arr 0 = Bind (Use a) (P.fst . xy)
+      arr 1 = Bind (Use a) (P.snd . xy)
   in
   Arr 2 2 arr
 
@@ -319,8 +358,8 @@ p1 = [1,3..15]
 p2 :: Arr (Acc (Vector Int))
 p2 =
   let lr    = split1 0.5
-      arr 1 = Bind (Use p0) (P.fst . lr)
-      arr 2 = Bind (Use p0) (P.snd . lr)
+      arr 0 = Bind (Use p0) (P.fst . lr)
+      arr 1 = Bind (Use p0) (P.snd . lr)
   in
   Arr 1 2 arr
 
@@ -330,8 +369,8 @@ p3 = fromList (Z :. 5 :. 20) [0,0.1..]
 p4 :: Arr (Acc (Array DIM2 Float))
 p4 =
   let tb    = split2 0.5
-      arr 1 = Bind (Use p3) (P.fst . tb)
-      arr 2 = Bind (Use p3) (P.snd . tb)
+      arr 0 = Bind (Use p3) (P.fst . tb)
+      arr 1 = Bind (Use p3) (P.snd . tb)
   in
   Arr 2 2 arr
 
@@ -340,10 +379,10 @@ p5 =
   let llrr  = split1 0.5
       ll    = split1 0.5 . P.fst . llrr
       rr    = split1 0.5 . P.snd . llrr
-      arr 1 = Bind (Use p3) (P.fst . ll)
-      arr 2 = Bind (Use p3) (P.snd . ll)
-      arr 3 = Bind (Use p3) (P.fst . rr)
-      arr 4 = Bind (Use p3) (P.snd . rr)
+      arr 0 = Bind (Use p3) (P.fst . ll)
+      arr 1 = Bind (Use p3) (P.snd . ll)
+      arr 2 = Bind (Use p3) (P.fst . rr)
+      arr 3 = Bind (Use p3) (P.snd . rr)
   in
   Arr 1 4 arr
 
