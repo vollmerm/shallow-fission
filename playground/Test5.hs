@@ -82,7 +82,7 @@ puse :: Arrays a => a -> Arr (Acc a)
 puse a = Arr 0 1 (\_ -> Return (use a))
 
 
-pfold :: (Shape sh, Elt e)
+pfold :: forall sh e. (Inf sh, Shape sh, Elt e)
       => (Exp e -> Exp e -> Exp e)
       -> Exp e
       -> Arr (Acc (Array (sh :. Int) e))
@@ -90,9 +90,10 @@ pfold :: (Shape sh, Elt e)
 pfold f z (Arr dx nx gx) =
   let piece i = Bind (gx i) (A.fold f z)
       with    = case dx of
-                  0 -> A.zipWith f
-                  -- 1 -> concatV     -- onoes!! types!!
-                  _ -> error "pfold: unhandeled dimension"
+                  0                               -> A.zipWith f
+                  1 | Inf1 <- inf (undefined::sh) -> (A.++)
+                  2 | Inf2 <- inf (undefined::sh) -> concatV
+                  _                               -> error "pfold: unhandeled dimension"
   in
   Arr 0 1 (\_ -> P.foldl1 (\x y -> Join x y with)
                $ P.map piece [1 .. nx])
@@ -146,6 +147,25 @@ concatV xs ys =
   generate (A.lift $ (sh1 `intersect` sh2) :. (xj + yj) :. (min xi yi))
            (\ix -> let sh :. j :. i = unlift ix :: Exp sh :. Exp Int :. Exp Int
                    in  j A.<* xj ? (xs ! ix, ys ! A.lift (sh :. (j-xj) :. i)))
+
+
+data Inf' sh where
+  Inf0 ::                         Inf' Z
+  Inf1 :: (Shape sh, Slice sh) => Inf' (sh :. Int)
+  Inf2 :: (Shape sh, Slice sh) => Inf' (sh :. Int :. Int)
+
+class Inf sh where
+  inf :: sh -> Inf' sh
+
+instance Inf Z where
+  inf _ = Inf0
+
+instance Inf DIM1 where
+  inf _ = Inf1
+
+instance (Shape sh, Slice sh) => Inf (sh :. Int :. Int) where
+  inf _ = Inf2
+
 
 --------------------------------------------------------------------------------
 -- Tests
