@@ -18,14 +18,38 @@ library
   hs-source-dirs:      src2
   exposed-modules:
         Data.Array.Accelerate.Fission
-        Data.Split
 
   build-depends:
           base                  >= 4.7
         , accelerate            >= 2.0
         , mtl                   >= 2.0
+        , accelerate-llvm
+        , accelerate-llvm-native
+        , accelerate-llvm-ptx
+        , accelerate-random
+        , mwc-random
+        , parallel
 
   ghc-options:  -Wall
+
+executable blackscholes
+  default-language:    Haskell2010
+  hs-source-dirs:      benchmarks
+  main-is:             Blackscholes.hs
+  ghc-options:          -Wall -O2 -threaded -fpedantic-bottoms -fno-full-laziness -fno-excess-precision -eventlog -rtsopts
+  build-depends:
+          base                  >= 4.7
+        , accelerate            >= 2.0
+        , mtl                   >= 2.0
+        , accelerate-llvm
+        , accelerate-llvm-native
+        , accelerate-llvm-ptx
+        , accelerate-random
+        , mwc-random
+        , parallel
+        , criterion
+        , shallow-fission
+
 
 -- executable fission-test1
 --   default-language:     Haskell2010

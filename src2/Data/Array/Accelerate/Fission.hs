@@ -1,497 +1,424 @@
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE GADTs                     #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedLists           #-}
+{-# LANGUAGE ParallelListComp          #-}
+{-# LANGUAGE RankNTypes                #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE StandaloneDeriving        #-}
+{-# LANGUAGE TypeOperators             #-}
+{-# LANGUAGE TypeSynonymInstances      #-}
+
+{-# OPTIONS_GHC -fno-warn-unused-imports     #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module Data.Array.Accelerate.Fission where
 
-import           Control.Monad()
-import           Data.Array.Accelerate as A hiding (Acc, Divide, Split)
-import qualified Data.Array.Accelerate as A
---import           Data.Split
-import           Data.Typeable
-import           Prelude               as P
-import           Text.Printf
+import Data.Array.Accelerate                        as A hiding ( Split )
+import qualified Data.Array.Accelerate              as A
+import Data.Array.Accelerate.LLVM.Native            as A
+import qualified Data.Array.Accelerate.LLVM.PTX     as PTX
+import Prelude                                      as P
+
+import Control.Applicative
+import Control.Exception
+import Control.Monad
+import Control.Parallel
+import Data.Monoid
+import Data.Typeable
+import System.Random.MWC                            as MWC
+import Text.Printf
+
+
+--------------------------------------------------------------------------------
+-- LEVEL 1: Pre-fission, arrays conceptually in one or more pieces
+--------------------------------------------------------------------------------
+--
+-- This is the level exposed to shim/library writer
+--
+
+data Out a where
+  -- Return :: a -> Out a
+  Use    :: a -> Out (Acc a)
+  --
+  Bind   :: (Show a, Arrays a)
+         => Out (Acc a)
+         -> (Acc a -> b)
+         -> Out b
+  --
+  Join   :: (Show a, Show b, Arrays a, Arrays b)
+         => Out (Acc a)                 -- evaluate 'a' and 'b' to completion...
+         -> Out (Acc b)                 -- ...possibly on different devices
+         -> (Acc a -> Acc b -> c)       -- pass both along to some subcomputation
+         -> Out c
+
+data Arr a where
+  Arr :: Int            -- split dimension
+      -> Int            -- number of pieces (n)
+      -> (Int -> Out a) -- generator for each piece [0 .. n-1]
+      -> Arr a
+
+
+psplit1
+  :: (Shape sh, Slice sh, Elt e)
+  => Double
+  -> Arr (Acc (Array (sh :. Int) e))
+  -> Arr (Acc (Array (sh :. Int) e))
+psplit1 p (Arr dx nx gx)
+  | dx == 1 || nx == 1
+  = let gx' i | m == 0    = Bind (gx n) (P.fst . split1 p)
+              | otherwise = Bind (gx n) (P.snd . split1 p)
+              where
+                (n,m) = divMod i 2
+    in
+    Arr 1 (nx*2) gx'
+psplit1 _ _
+  = error "psplit1: can't recursively subdivide on different dimensions ):"
+
+
+
+-- This forces the computation over two pieces, but instead we should really
+-- leave that up to the schedule/tune phase.
+--
+pgenerate
+    :: forall sh e. (Inf sh, Shape sh, Elt e)
+    => Exp sh
+    -> (Exp sh -> Exp e)
+    -> Arr (Acc (Array sh e))
+pgenerate sh f =
+  let
+      dummy :: Scalar ()
+      dummy = fromList Z [()]
+      --
+      arr = Arr 0 1 (\_ -> Bind (Use dummy) (\_ -> A.generate sh f))
+  in
+  case inf (undefined::sh) of
+    Inf1 -> psplit1 0.5 arr
+    _    -> arr
+
+
+pzipWith
+    :: (Shape sh, Elt a, Elt b, Elt c)
+    => (Exp a -> Exp b -> Exp c)
+    -> Arr (Acc (Array sh a))
+    -> Arr (Acc (Array sh b))
+    -> Arr (Acc (Array sh c))
+pzipWith f (Arr dx nx gx) (Arr _dy _ny gy) =
+  -- guard (dx == dy)
+  -- guard (nx == ny)
+  -- There is a cartesian product of options here, where for each `i` we could
+  -- either Bind (fuse) or Join (force) it. This is not expressed in the current
+  -- interface.
+  --
+  -- pure (Arr dx nx (\i -> Bind (gx i) $ \x ->
+  --                        Bind (gy i) $ \y ->
+  --                        Return (A.zipWith f x y)))
+  -- <|>
+  Arr dx nx (\i -> Join (gx i) (gy i) (A.zipWith f))
 
-import Data.Array.Accelerate.Interpreter as A
 
-data Rep a where
-    Return :: (Arrays a)
-           => FAcc a
-           -> Rep (FAcc a)
-
-    Bind   :: (Arrays a, Arrays b)
-           => Rep (FAcc b)
-           -> (FAcc b -> Rep (FAcc a))
-           -> Rep (FAcc a)
-
-    Join   :: (Arrays a, Arrays b, Arrays c)
-           => (Rep (FAcc b) -> Rep (FAcc c) -> Rep (FAcc a))
-           -> Rep (FAcc b)
-           -> Rep (FAcc c)
-           -> Rep (FAcc a)
-
-    -- Use    :: (Arrays a)
-    --        => a
-    --        -> Rep (FAcc a) -- avoid collapsing use with bind
-
-
-data FAcc a where
-    FAcc :: Int -> [A.Acc a] -> FAcc a
-    deriving Show
-
-type Acc a = Rep (FAcc a)
-
-
--- instance Show a => Show (Rep a) where
---     show (Return a) = printf "(Return %s)" $ show a
---     show (Bind b f) = printf "(Bind %s %s)" (show b) (show f)
-
-fizzCompute :: Arrays a => FAcc a -> FAcc a
-fizzCompute (FAcc s as) = FAcc s $ P.map A.compute as
-
-
-computeEval :: Rep (FAcc a) -> FAcc a
-computeEval (Return a)   = a
-computeEval (Bind b f)   = computeEval $ f $ fizzCompute (computeEval b)
-computeEval (Join f a b) = computeEval $ f a b
--- computeEval (Use a)      = FAcc 0 [use a]
-
-nocomputeEval :: Rep (FAcc a) -> (FAcc a)
-nocomputeEval (Return a)   = a
-nocomputeEval (Bind b f)   = computeEval $ f (computeEval b)
-nocomputeEval (Join f a b) = computeEval $ f a b
--- nocomputeEval (Use a)      = FAcc 0 [use a]
-
-
-
-fizzMap :: (Shape sh, Elt a, Elt b) =>
-           (Exp a -> Exp b)
-        -> Acc (Array sh a)
-        -> Acc (Array sh b)
-fizzMap f a = Bind a f'
-    where f' (FAcc s as) = Return $ FAcc s $ P.map (A.map f) as
-
-fizzZipWith :: (Shape sh, Elt a, Elt b, Elt c) =>
-               (Exp a -> Exp b -> Exp c)
-            -> Acc (Array sh a)
-            -> Acc (Array sh b)
-            -> Acc (Array sh c)
-fizzZipWith f a1 a2 =
-    Bind a1 $ Bind a2 . f'
-    where f' (FAcc s1 a1') (FAcc _s2 a2') =
-              Return $ FAcc s1 $ P.zipWith (A.zipWith f) a1' a2'
-
-fizzZipWith' :: (Shape sh, Elt a, Elt b, Elt c) =>
-                (Exp a -> Exp b -> Exp c)
-             -> Acc (Array sh a)
-             -> Acc (Array sh b)
-             -> Acc (Array sh c)
-fizzZipWith' f = Join (fizzZipWith f)
-
-fizzFold :: forall sh e. (Shape sh, Elt e) =>
-            (Exp e -> Exp e -> Exp e)
-         -> Exp e
-         -> Acc (Array (sh :. Int) e)
-         -> Acc (Array sh e)
-fizzFold f z a = Bind a f'
-    where f' (FAcc s as) =
-              Bind (Return $ FAcc s $ P.map (A.fold f z) as)
-                   (\a' -> case s of
-                            0 -> join0 f a'
-                            1 -> concatV a'
-                            _ -> error "fizzFold: DIM case not handled.")
-
-
-concatV :: FAcc (Array sh e) -> Acc (Array sh e)
-concatV _a = undefined
-
-
-join0 :: (Shape sh, Elt e) =>
-         (Exp e -> Exp e -> Exp e)
-      -> FAcc (Array sh e)
-      -> Acc (Array sh e)
--- join0 f (FAcc s [a]) = Return $ FAcc s [a]
-join0 f (FAcc s [a]) = Join const (Return $ FAcc s [a]) (Return $ FAcc s [a])
-join0 f (FAcc s (a:as)) =
-    Join (fizzZipWith f) (Return $ FAcc s [a]) (join0 f $ FAcc s as)
-
-arr :: Acc (Array DIM2 Float)
--- arr = Use $ A.fromList (Z :. 10 :. 10) [0..]
--- arr = Return $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..]]
-arr = Return $ FAcc 0 [use $ A.fromList (Z :. 10 :. 10) [0..],
-                    use $ A.fromList (Z :. 10 :. 10) [0..]]
-
-foo1 :: (Shape sh) => Acc (Array sh Float) -> Acc (Array sh Float)
-foo1 as = fizzMap (+ 1) as
--- Bind (Use a) (\a -> Return (map (+ 1) a))
-
-foo2 :: Shape sh => Acc (Array sh Float) -> Acc (Array sh Float)
-foo2 as = fizzMap (* 2) (foo1 as)
--- Bind (Bind (Use a) (\a -> Return (map (+ 1) a))) (\a -> (Return map (* 2) a))
-
-fooz :: Shape sh => Acc (Array sh Float) -> Acc (Array sh Float)
-fooz as = fizzZipWith' (+) (foo2 as) (foo1 as)
-
-fooz1 :: Shape sh => Acc (Array sh Float) -> Acc (Array sh Float)
-fooz1 as = let a = foo2 as in fizzZipWith' (+) a a
-
-foo3 :: Shape sh => Acc (Array sh Float) -> Acc (Array sh (Float,Float))
-foo3 as = fizzMap (\x -> A.lift (x,1::Float)) (foo2 as)
-
-foo4 :: Shape sh => Acc (Array (sh :. Int) Float) -> Acc (Array sh Float)
-foo4 as = fizzFold (+) 0 (foo2 as)
-
-partialEval :: Rep a -> Rep a
-partialEval (Return a) = Return a
-partialEval (Bind b f) =
-    let b' = partialEval b
-    in case b' of
-         Return a -> f a
-         -- Use a -> Bind (Use a) f
-         Bind b'' g -> Bind b'' $ repCompose g f
-         _ -> Bind b' f
-partialEval (Join f a b) = Join f (partialEval a) (partialEval b)
--- partialEval (Use a) = Use a
-
-repCompose
-    :: Arrays c
-    => (FAcc a -> Rep (FAcc b))
-    -> (FAcc b -> Rep (FAcc c))
-    -> FAcc a
-    -> Rep (FAcc c)
-repCompose g f a =
-    case g a of
-      Return a' -> f a'
-      Bind b f' -> Bind (partialEval (Bind b f')) f
-      Join f' a' b -> Bind (partialEval (Join f' a' b)) f
-      -- Use a' -> Bind (Use a') f
-
-
--- data Rep' a where
---     Return' :: (Arrays a)
---             => a -> Rep' a
---     Bind'   :: (Arrays a, Arrays b)
---             => Rep' b -> (b -> Rep' a) -> Rep' a
---     Join'   :: (Arrays a, Arrays b, Arrays c)
---             => (Rep' b -> Rep' c -> Rep' a)
---             -> Rep' b -> Rep' c -> Rep' a
---     Use'    :: (Arrays a)
---             => a -> Rep' a
-
--- data Rep' a where
---     Return' :: (Arrays a) => A.Acc a -> Rep' (A.Acc a)
---     Bind'   :: (Arrays a) => Rep' (A.Acc b) -> (A.Acc b -> Rep' (A.Acc a)) -> Rep' (A.Acc a)
---     Join'   :: (Arrays a, Arrays b, Arrays c) =>
---                (Rep' (A.Acc b) -> Rep' (A.Acc c) -> Rep' (A.Acc a)) ->
---                Rep' (A.Acc b) -> Rep' (A.Acc c) -> Rep' (A.Acc a)
---     Use'    :: (Arrays a) => A.Acc a -> Rep' (A.Acc a)
-
--- naiveTranslate :: (Arrays a) => Rep (FAcc a) -> Rep' (A.Acc a)
--- naiveTranslate (Return (FAcc _ [a])) = Return' a
--- naiveTranslate (Bind b f) = Bind' (naiveTranslate b) f'
---     where f' a = Return' $ extractAcc $ nocomputeEval (f $ FAcc 0 [a])
--- naiveTranslate (Join f a b) = Join' undefined (naiveTranslate a) (naiveTranslate b)
--- naiveTranslate (Use (FAcc _ [a])) = Use' a
-
-extractAcc :: Arrays a => FAcc a -> A.Acc a
-extractAcc (FAcc _ [a]) = a
-
-wrapAcc :: Arrays a => A.Acc a -> FAcc a
-wrapAcc a = FAcc 0 [a]
-
-data Schedule a where
-    Compute :: (Arrays a, Arrays b) => Schedule b -> (b -> a) -> Schedule a
-    Use'    :: (Arrays a) => a -> Schedule a
---    Return' :: (Arrays a) => A.Acc a -> Schedule a
-
-run1' :: (Arrays a, Arrays b) => (A.Acc a -> A.Acc b) -> (a -> b)
-run1' = undefined
-
-naiveTranslate :: Rep (FAcc a) -> Schedule a
-naiveTranslate (Return (FAcc _ [a])) = undefined -- Return' a
-naiveTranslate (Bind b f) = Compute s' $ run1' f'
-    where s' = naiveTranslate (Bind b f)
-          f' a = undefined -- extractAcc $ nocomputeEval $ f $ wrapAcc a
-                 -- can't write this...
-
-
-
--- -- Representation where we have selected which chunking strategy to use.
--- --
--- data S a where
---   SBind :: (Arrays a, Arrays b)
---         => S (A.Acc a)
---         -> (A.Acc a -> A.Acc b)
---         -> S (A.Acc b)
-
---   SJoin :: (Arrays a, Arrays b, Arrays c)
---         => (A.Acc a -> A.Acc b -> A.Acc c)
---         -> S (A.Acc a)
---         -> S (A.Acc b)
---         -> S (A.Acc c)
-
---   SReturn :: Arrays a         -- TLM: look into removing Return from the language
---           => A.Acc a
---           -> S (A.Acc a)
-
---   SFork :: (Arrays a, Arrays b)
---         => S (A.Acc a)
---         -> S (A.Acc b)
---         -> S (A.Acc a, A.Acc b)
-
---   SUse  :: (Arrays a, Show a)
---         => a
---         -> S (A.Acc a)
-
--- instance Show (S a) where
---   show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
---   show (SJoin f x y) = printf "(SJoin (%s) %s %s)" (show f) (show x) (show y)
---   show (SReturn x)   = printf "(SReturn %s)" (show x)
---   show (SUse a)      = printf "(SUse %s)" (show a)
---   show (SFork a b)   = printf "(SFork %s %s)" (show a) (show b)
-
-
--- schedule :: Rep (FAcc a) -> S (A.Acc a)
--- schedule (Return f)   = SReturn (extractAcc f)  -- TLM: don't want these!
--- schedule (Bind x f)   = SBind (schedule x) (extractAcc . computeEval . f . wrapAcc)
--- schedule (Join f x y) = SJoin (\x' y' -> extractAcc $ computeEval (f (Return $ wrapAcc x') (Return $ wrapAcc y')))
---                               (schedule x)
---                               (schedule y)
-
-
--- -- Representation with the choice of executor embedded in it.
--- --
--- data E a where
---   EBind :: (Arrays a, Arrays b)
---         => E a
---         -> (a -> b)
---         -> E b
-
---   EJoin :: (Arrays a, Arrays b, Arrays c)
---         => (a -> b -> c)
---         -> E a
---         -> E b
---         -> E c
-
---   -- EFork :: Arrays a
---   --       => [E a]
---   --       -> E a
-
---   EUse  :: Arrays a
---         => a
---         -> E a
-
-run2 :: (Arrays a, Arrays b, Arrays c) => (A.Acc a -> A.Acc b -> A.Acc c) -> (a -> b -> c)
-run2 f x y = run1 (A.uncurry f) (x,y)
-
--- -- In this step, assign each operation to a specific backend
--- --
--- exec :: S (A.Acc a) -> E a
--- exec (SJoin f x y) = EJoin (run2 f) (exec x) (exec y)
--- exec (SBind x f)   = EBind (exec x) (run1 f)
--- exec (SUse x)      = EUse x
-
-
--- we talked about this... how do we handle cases where we need to know
--- if something was split?
-data BranchCond = IsSplit | IsNotSplit -- ...
-
-data Emb a where
-    ECompute :: (Arrays a, Arrays b)
-             => Emb b
-             -> (A.Acc b -> A.Acc a)
-             -> Emb a
-
-    -- Do we need both ECombine and EJoin?
-    -- So far this is used in zipWith
-    EJoin    :: (Arrays a, Arrays b, Arrays c)
-             => (A.Acc b -> A.Acc c -> A.Acc a)
-             -> Emb b
-             -> Emb c
-             -> Emb a
-
-    -- Unlike Join, only takes one argument
-    ECombine :: (Arrays a)
-             => (A.Acc a -> A.Acc a -> A.Acc a)
-             -> Emb a
-             -> Emb a
-               
-    EUse     :: (Arrays a)
-             => a
-             -> Emb a
-
-    EUse2    :: (Arrays a)
-             => (a,a)
-             -> Emb a
-
-    EBranch  :: (Arrays a, Arrays b)
-             => BranchCond
-             -> Emb b
-             -> Emb a -- then
-             -> Emb a -- else
-             -> Emb a
-
-    -- Do different things to each split half (?)
-    EEach    :: (Arrays a, Arrays b)
-             => Emb b
-             -> (A.Acc b -> A.Acc a)
-             -> (A.Acc b -> A.Acc a)
-             -> Emb a
-
-
-data Sched a where
-    SCompute :: (Arrays a, Arrays b)
-             => Sched b
-             -> (b -> a)
-             -> Sched a
-
-    SJoin    :: (Arrays a, Arrays b, Arrays c)
-             => (b -> c -> a)
-             -> Sched b
-             -> Sched c
-             -> Sched a
-
-    SCombine :: (Arrays a)
-             => (a -> a -> a)
-             -> Sched a
-             -> Sched a
-                
-    SUse     :: (Arrays a)
-             => a
-             -> Sched a
-                
-    SUse2    :: (Arrays a)
-             => (a,a)
-             -> Sched a
-
-    SSplit   :: (Arrays a)
-             => Sched a
-             -> Double
-             -> Sched a
-
-    SEach    :: (Arrays a, Arrays b)
-             => Sched b
-             -> (b -> a)
-             -> (b -> a)
-             -> Sched a
-
-instance Show (Emb a) where
-    show (ECompute b f) = printf "(ECompute %s %s)" (show b) (show f)
-    show (EJoin f a b) = printf "(EJoin %s %s %s)" (show f) (show a) (show b)
-    show (ECombine f a) = printf "(ECombine %s %s)" (show f) (show a)
-    show (EUse a) = printf "(EUse)"
-    show (EUse2 _a) = printf "(EUse2)"
-
-instance Show (Sched a) where
-    show (SCompute b f) = printf "(SCompute %s f)" (show b) 
-    show (SJoin f a b) = printf "(SJoin f %s %s)"  (show a) (show b)
-    show (SCombine f a) = printf "(SCombine f %s)" (show a)
-    show (SUse a) = printf "(SUse)"
-    show (SUse2 _a) = printf "(SUse2)"
-    show (SEach b _ _) = printf "(SEach %s f f)" (show b)
-    
-
--- This should maybe try to fuse EJoins into EComputes, if I can make that
--- work out.
-esimplify :: Emb a -> Emb a
-esimplify (EUse a) = EUse a
-esimplify (EUse2 a) = EUse2 a
-esimplify (ECompute b f) =
-    case (esimplify b) of
-      ECompute b' g -> esimplify (ECompute b' (f . g))
-      b' -> ECompute b' f
-esimplify (EJoin f a b) = EJoin f (esimplify a) (esimplify b)
-esimplify (ECombine f a) = ECombine f (esimplify a)
-
-eeval :: Emb a -> A.Acc a
-eeval (EUse a) = A.use a
-eeval (ECompute b f) = f $ eeval b
-eeval (EJoin f a b) = f (eeval a) (eeval b)
-eeval (ECombine f a) = eeval a -- f (eeval a)
-
-toSched1 :: Emb a -> Sched a
-toSched1 (EUse a) = SUse a
-toSched1 (ECompute b f) = SCompute (toSched1 b) (run1 f)
-toSched1 (EJoin f a b) = SJoin (run2 f) (toSched1 a) (toSched1 b)
-toSched1 (ECombine f a) = SCombine (run2 f) (toSched1 a)
-
-toSched2 :: Emb a -> Sched a
-toSched2 (EUse a) = SSplit (SUse a) 0.5
-toSched2 (EUse2 (a1,a2)) = SUse2 (a1,a2)
-toSched2 (ECompute b f) = SEach (toSched2 b) (run1 f) (run1 f)
-toSched2 (EJoin f a b) = SJoin (run2 f) (toSched2 a) (toSched2 b)
-toSched2 (ECombine f a) = SCombine (run2 f) (toSched1 a)
-
-data SchedArray a = One a | Two (a,a)
-                  deriving Show
-
-interpSched :: (Arrays a) => Sched a -> SchedArray a
-interpSched (SUse a) = One a
-interpSched (SCompute b f) =
-    case (interpSched b) of
-      One a -> One $ f a
-      _ -> error "Can't handle this"
-interpSched (SJoin f a b) =
-    case (interpSched a, interpSched b) of
-      (One a, One b) -> One $ f a b
-      _ -> error "Can't handle this"
-interpSched (SCombine f a) =
-    case (interpSched a) of
-      One a -> One a
-      Two (a1,a2) -> One $ f a1 a2
-interpSched (SEach b f1 f2) =
-    case (interpSched b) of
-      One _ -> error "Can't handle this"
-      Two (a1,a2) -> Two (f1 a1, f2 a2)
-interpSched (SUse2 (a1,a2)) = Two (a1,a2)
-interpSched (SSplit a d) = undefined
-
-
-    
-emap :: (Shape sh, Elt a, Elt b)
+pmap :: (Shape sh, Elt a, Elt b)
      => (Exp a -> Exp b)
-     -> Emb (Array sh a)
-     -> Emb (Array sh b)
-emap f a = ECompute a f'
-    where f' = A.map f
+     -> Arr (Acc (Array sh a))
+     -> Arr (Acc (Array sh b))
+pmap f (Arr d n gx) =
+  Arr d n (\i -> Bind (gx i) (A.map f))
 
-ezipWith :: forall a b c sh. (Shape sh, Elt a, Elt b, Elt c)
-         => (Exp a -> Exp b -> Exp c)
-         -> Emb (Array sh a)
-         -> Emb (Array sh b)
-         -> Emb (Array sh c)
-ezipWith f a1 a2 = ECompute a' f' 
-    where a' = EJoin A.zip a1 a2 -- This *won't* get fused right now (!)
-          f' = A.map (\a -> f (A.fst a) (A.snd a))
 
-efold :: forall sh e. (Shape sh, Elt e)
+puse :: Arrays a => a -> Arr (Acc a)
+puse a = Arr 0 1 (\_ -> Use a)
+
+
+-- TLM: after the fold completes we only have one piece. We must be able to
+--      decide whether or not to split again.
+--
+pfold :: forall sh e. (Inf sh, Shape sh, Elt e)
       => (Exp e -> Exp e -> Exp e)
       -> Exp e
-      -> Emb (Array (sh :. Int) e)
-      -> Emb (Array sh e)
-efold f z a = combine' f $ ECompute a f' -- How to we handle vertical splits?
-    where f' = A.fold f z
+      -> Arr (Acc (Array (sh :. Int) e))
+      -> Arr (Acc (Array sh e))
+pfold f z (Arr dx nx gx) =
+  let piece i = Bind (gx i) (A.fold f z)
+      with    = case dx of
+                  1                               -> A.zipWith f
+                  2 | Inf1 <- inf (undefined::sh) -> (A.++)
+                  3 | Inf2 <- inf (undefined::sh) -> concat2
+                  _                               -> error "pfold: unhandeled dimension"
+  in
+  Arr 0 1 (\_ -> P.foldl1 (\x y -> Join x y with) -- decide splits??
+               $ P.map piece [0 .. nx-1])
 
-combine' :: (Shape ix, Elt a)
-         => (Exp a -> Exp a -> Exp a)
-         -> Emb (Array ix a)
-         -> Emb (Array ix a)
-combine' f = ECombine (A.zipWith f)
+
+-- arr :: (Shape sh, Elt e) => Out (Acc (Array sh e)) -> Arr (Acc (Array sh e))
+-- arr x = Arr 0 1 (\_ -> x)
 
 
-earr :: Emb (Array DIM2 Float)
-earr = EUse (A.fromList (Z :. 10 :. 10) [0..])
+--------------------------------------------------------------------------------
+-- LEVEL 2: Fission decision baked into a data structure
+--------------------------------------------------------------------------------
+--
+-- This step disentangles the multi-piece array representation and inserts
+-- explicit fork/join nodes representing the parallel computations on each
+-- piece. Also generates (Acc -> Acc) functions in the process.
+--
 
-earr2 :: Emb (Array DIM2 Float)
-earr2 = EUse2 ((A.fromList (Z :. 10 :. 10) [0..]),(A.fromList (Z :. 10 :. 10) [0..]))
+data S a where
+  SUse    :: a -> S (Acc a)
+  SBind   :: (Show a, Arrays a) => S (Acc a) -> (Acc a -> b) -> S b
+  SJoin   :: (Show a, Show b, Arrays a, Arrays b) => S (Acc a) -> S (Acc b) -> (Acc a -> Acc b -> c) -> S c
 
-efoo1 :: (Shape sh) => Emb (Array sh Float) -> Emb (Array sh Float)
-efoo1 as = emap (+ 1) as
+  -- SReturn :: a -> S a
+  -- SSplit  :: S (Acc a) -> (Acc a -> S b) -> (Acc a -> S c) -> (b -> c -> d) -> S d
 
-efoo2 :: (Shape sh) => Emb (Array sh Float) -> Emb (Array sh Float)
-efoo2 as = emap (* 2) (efoo1 as)
+instance (Show a, Arrays a) => Show (S (Acc a)) where
+  show (SUse x)      = printf "(SUse %s)" (show x)
+  show (SBind x f)   = printf "(SBind %s (%s))" (show x) (show f)
+  show (SJoin x y f) = printf "(SJoin %s %s (%s))" (show x) (show y) (show f)
+  -- show (SReturn x)   = printf "(SReturn %s)" (show x)
+
+
+-- Convert an Out to an S
+--
+sout :: Out (Acc a) -> S (Acc a)
+sout (Use x)      = SUse x
+-- sout (Return x)   = SReturn x
+sout (Bind x f)   = SBind (sout x) f
+sout (Join x y f) = SJoin (sout x) (sout y) f
+
+-- Flip coins / ask an oracle and decide whether to fuse or compute things at
+-- each step.
+--
+stune :: S (Acc a) -> S (Acc a)
+stune (SBind (SBind y f) g) = stune (SBind y (g . f))
+stune (SJoin x y f)         = SJoin (stune x) (stune y) f
+stune x                     = x
+
+
+-- Schedule a computation for execution
+--
+schedule
+    :: forall sh e. (Inf sh, Shape sh, Elt e)
+    => Arr (Acc (Array sh e))
+    -> S   (Acc (Array sh e))
+schedule (Arr _  1  gx) = sout (gx 1)
+schedule (Arr dx nx gx) =
+  let
+      pieces    = P.map gx [0 .. nx-1]
+      combine f = P.foldl1 (\x y -> Join x y f) pieces
+  in
+  sout $ case dx of
+           1 | Inf1 <- inf (undefined::sh) -> combine (A.++)
+           2 | Inf2 <- inf (undefined::sh) -> combine concat2
+           _                               -> error "schedule: unhandled dimension"
+
+
+-- Decide how to split the input array over the given executor.
+--
+schedule1
+    :: forall sh sh' a b. (Inf sh, Inf sh', Shape sh, Shape sh', Slice sh, Elt a, Elt b)
+    => (Arr (Acc (Array sh a)) -> Arr (Acc (Array sh' b)))
+    -> Array sh a
+    -> S (Acc (Array sh' b))
+schedule1 f a
+  | Inf0 <- inf (undefined::sh) = schedule (f (Arr 0 1 (\_ -> Use a)))
+  | Inf1 <- inf (undefined::sh) = schedule (f (use1 0.5 a))     -- TODO: pick random split point
+  | Inf2 <- inf (undefined::sh) = schedule (f (use2 0.5 a))     -- TODO: choose to split either up/down or left/right
+
+
+schedulen
+    :: forall sh sh' a b. (Inf sh, Inf sh', Shape sh, Shape sh', Slice sh, Elt a, Elt b)
+    => (Arr (Acc (Array sh a)) -> Arr (Acc (Array sh' b)))
+    -> Array sh a
+    -> Double
+    -> S (Acc (Array sh' b))
+schedulen f a n
+  | Inf0 <- inf (undefined::sh) = schedule (f (Arr 0 1 (\_ -> Use a)))
+  | Inf1 <- inf (undefined::sh) = schedule (f (use1 n a))
+  | Inf2 <- inf (undefined::sh) = schedule (f (use2 n a))
+
+
+
+-- TODO: potentially split the array on the host (by, e.g., running with the
+--       LLVM CPU backend) so that we don't have to upload the entire array to
+--       the device to then immediately slice out a small portion.
+--
+use1 :: (Shape sh, Slice sh, Elt e)
+     => Double
+     -> Array (sh :. Int) e
+     -> Arr (Acc (Array (sh :. Int) e))
+use1 p a =
+  let xy    = split1 p
+      arr 0 = Bind (Use a) (P.fst . xy)
+      arr 1 = Bind (Use a) (P.snd . xy)
+  in
+  Arr 1 2 arr
+
+use2 :: (Shape sh, Slice sh, Elt e)
+     => Double
+     -> Array (sh :. Int :. Int) e
+     -> Arr (Acc (Array (sh :. Int :. Int) e))
+use2 p a =
+  let xy    = split2 p
+      arr 0 = Bind (Use a) (P.fst . xy)
+      arr 1 = Bind (Use a) (P.snd . xy)
+  in
+  Arr 2 2 arr
+
+
+--------------------------------------------------------------------------------
+-- LEVEL 3: Execution (backend) decision baked into data structure
+--------------------------------------------------------------------------------
+
+data E a where
+  EUse  :: a -> E a
+  EBind :: (Arrays a) => E a -> (a -> b) -> E b
+  EJoin :: (Arrays a, Arrays b) => E a -> E b -> (a -> b -> c) -> E c
+
+run2 :: (Arrays a, Arrays b, Arrays c) => (Acc a -> Acc b -> Acc c) -> (a -> b -> c)
+run2 f = \x y -> f' (x,y)
+  where
+    f' = run1 (A.uncurry f)
+
+
+-- In this step, assign each operation to a specific backend
+--
+exec :: Arrays a => S (Acc a) -> E a
+exec (SJoin x y f) = EJoin (exec x) (exec y) (run2 f)
+exec (SBind x f)   = EBind (exec x) (run1 f)
+exec (SUse x)      = EUse x
+
+exec1 :: Arrays a => S (Acc a) -> Bool -> E a
+exec1 (SJoin x y f) b = EJoin (exec1 x b) (exec1 y $ P.not b) (run2 f)
+exec1 (SBind x f) b   = EBind (exec1 x b) $ if b then (A.run1 f) else (PTX.run1 f)
+exec1 (SUse x) _      = EUse x
+
+exec2 :: Arrays a => S (Acc a) -> E a
+exec2 (SJoin x y f) = EJoin (exec x) (exec y) (run2 f)
+exec2 (SBind x f)   = EBind (exec x) (PTX.run1 f)
+exec2 (SUse x)      = EUse x
+
+
+-- Finally, we have something that we can actually execute
+--
+eval :: E a -> a
+eval (EJoin x y f) = let x' = eval x
+                         y' = eval y
+                     in x' `par` y' `pseq` f x' y'
+eval (EBind x f)   = f (eval x)
+eval (EUse x)      = x
+
+
+--------------------------------------------------------------------------------
+-- Utilities
+--------------------------------------------------------------------------------
+
+
+split1
+    :: (Shape sh, Slice sh, Elt e)
+    => Double
+    -> Acc (Array (sh :. Int) e)
+    -> (Acc (Array (sh :. Int) e), Acc (Array (sh :. Int) e))
+split1 p a =
+  let sz  = indexHead (shape a)
+      n   = A.round (constant p * A.fromIntegral sz)
+  in
+  (A.take n a, A.drop n a)
+
+split2
+    :: forall sh e. (Shape sh, Slice sh, Elt e)
+    => Double
+    -> Acc (Array (sh :. Int :. Int) e)
+    -> ( Acc (Array (sh :. Int :. Int) e)
+       , Acc (Array (sh :. Int :. Int) e)
+       )
+split2 p a =
+  let sh :. n :. m = unlift (shape a) :: Exp sh :. Exp Int :. Exp Int
+      n'           = A.round (constant p * A.fromIntegral n)
+  in
+  ( backpermute (A.lift (sh :. n'     :. m)) id a
+  , backpermute (A.lift (sh :. n - n' :. m)) (\ix -> let sh :. j :. i = unlift ix :: Exp sh :. Exp Int :. Exp Int
+                                                     in A.lift (sh :. j + n' :. i)) a
+  )
+
+concat2
+    :: forall sh e. (Shape sh, Slice sh, Elt e)
+    => Acc (Array (sh :. Int :. Int) e)
+    -> Acc (Array (sh :. Int :. Int) e)
+    -> Acc (Array (sh :. Int :. Int) e)
+concat2 xs ys =
+  let sh1 :. xj :. xi = unlift (shape xs)  :: Exp sh :. Exp Int :. Exp Int
+      sh2 :. yj :. yi = unlift (shape ys)  :: Exp sh :. Exp Int :. Exp Int
+  in
+  generate (A.lift $ (sh1 `intersect` sh2) :. (xj + yj) :. (min xi yi))
+           (\ix -> let sh :. j :. i = unlift ix :: Exp sh :. Exp Int :. Exp Int
+                   in  j A.<* xj ? (xs ! ix, ys ! A.lift (sh :. (j-xj) :. i)))
+
+
+data Inf' sh where
+  Inf0 ::                         Inf' Z
+  Inf1 :: (Shape sh, Slice sh) => Inf' (sh :. Int)
+  Inf2 :: (Shape sh, Slice sh) => Inf' (sh :. Int :. Int)
+
+deriving instance Show (Inf' sh)
+
+class Inf sh where
+  inf :: sh -> Inf' sh
+
+instance Inf Z where
+  inf _ = Inf0
+
+instance Inf DIM1 where
+  inf _ = Inf1
+
+instance (Shape sh, Slice sh) => Inf (sh :. Int :. Int) where
+  inf _ = Inf2
+
+
+--------------------------------------------------------------------------------
+-- Tests
+--------------------------------------------------------------------------------
+
+p0, p1 :: Vector Int
+p0 = [0..10]
+p1 = [1,3..15]
+
+p2 :: Arr (Acc (Vector Int))
+p2 =
+  let lr    = split1 0.5
+      arr 0 = Bind (Use p0) (P.fst . lr)
+      arr 1 = Bind (Use p0) (P.snd . lr)
+  in
+  Arr 1 2 arr
+
+p3 :: Array DIM2 Float
+p3 = fromList (Z :. 5 :. 20) [0,0.1..]
+
+p4 :: Arr (Acc (Array DIM2 Float))
+p4 =
+  let tb    = split2 0.5
+      arr 0 = Bind (Use p3) (P.fst . tb)
+      arr 1 = Bind (Use p3) (P.snd . tb)
+  in
+  Arr 2 2 arr
+
+p5 :: Arr (Acc (Array DIM2 Float))
+p5 =
+  let llrr  = split1 0.5
+      ll    = split1 0.5 . P.fst . llrr
+      rr    = split1 0.5 . P.snd . llrr
+      arr 0 = Bind (Use p3) (P.fst . ll)
+      arr 1 = Bind (Use p3) (P.snd . ll)
+      arr 2 = Bind (Use p3) (P.fst . rr)
+      arr 3 = Bind (Use p3) (P.snd . rr)
+  in
+  Arr 1 4 arr
+
+
+t0 = run $ A.fold (+) 0 (use p3)
+t1 = eval . exec . stune . schedule $ pfold (+) 0 p4
+t2 = eval . exec         . schedule $ pfold (+) 0 p5
+
+
+t3 = run $ A.map (*2) (use p0)
+t4 = eval . exec $ schedule1 (pmap (*2)) p0
+
