@@ -76,6 +76,20 @@ psplit1 _ _
   = error "psplit1: can't recursively subdivide on different dimensions ):"
 
 
+psplit2
+  :: (Shape sh, Slice sh, Elt e)
+  => Double
+  -> Arr (Acc (Array (sh :. Int :. Int) e))
+  -> Arr (Acc (Array (sh :. Int :. Int) e))
+psplit2 p (Arr 0 1 gx)
+  = let gx' i | m == 0    = Bind (gx n) (P.fst . split2 p)
+              | otherwise = Bind (gx n) (P.snd . split2 p)
+              where
+                (n,m) = divMod i 2
+    in
+    Arr 2 2 gx'
+
+
 
 -- This forces the computation over two pieces, but instead we should really
 -- leave that up to the schedule/tune phase.
@@ -94,7 +108,27 @@ pgenerate sh f =
   in
   case inf (undefined::sh) of
     Inf1 -> psplit1 0.5 arr
-    _    -> arr
+    Inf2 -> psplit1 0.5 arr -- psplit2 0.5 arr
+    _    -> error "Can't do this yet"
+
+
+pgeneraten
+    :: forall sh e. (Inf sh, Shape sh, Elt e)
+    => Double
+    -> Exp sh
+    -> (Exp sh -> Exp e)
+    -> Arr (Acc (Array sh e))
+pgeneraten p sh f =
+  let
+      dummy :: Scalar ()
+      dummy = fromList Z [()]
+      --
+      arr = Arr 0 1 (\_ -> Bind (Use dummy) (\_ -> A.generate sh f))
+  in
+  case inf (undefined::sh) of
+    Inf1 -> psplit1 p arr
+    Inf2 -> psplit2 p arr
+    _    -> error "Can't do this yet"
 
 
 pzipWith
